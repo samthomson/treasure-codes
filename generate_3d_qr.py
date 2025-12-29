@@ -72,21 +72,21 @@ def create_box_triangles(x, y, z, width, depth, height):
     return triangles
 
 
-def create_3d_qr_code_combined(url, output_file, base_height=3, qr_height=1.5, text_height=2):
+def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9, text_height=1.2):
     """
     Create a single STL file with base + QR pattern combined.
-    Use filament change at Z=3mm for two colors (for non-AMS printers).
+    Use filament change at Z=1.8mm for two colors (for non-AMS printers).
     """
     print("  Generating QR code...")
     qr_img = generate_qr_code(url, size=200)
     qr_array = qr_to_array(qr_img)
     
-    # Dimensions - compact layout
-    qr_size_mm = 70
+    # Dimensions - compact layout (scaled to 60%)
+    qr_size_mm = 42
     pixel_size = qr_size_mm / qr_array.shape[0]
-    text_area_height = 8  # Minimal gap - text sits close to QR
-    margin = 3  # Reduced padding around edges
-    corner_radius = 4  # Rounded corners
+    text_area_height = 5  # Minimal gap - text sits close to QR
+    margin = 2  # Reduced padding around edges
+    corner_radius = 2.5  # Rounded corners
     total_height = text_area_height + qr_size_mm + 2 * margin
     total_width = qr_size_mm + 2 * margin
     
@@ -140,8 +140,8 @@ def create_3d_qr_code_combined(url, output_file, base_height=3, qr_height=1.5, t
         qr_mesh.vectors[i] = tri
     
     # Add text if CadQuery available
-    text_y = total_height/2 - text_area_height/2 - 3.0  # Moved down for equal padding
-    text_size = 7.0  # Smaller text for 8mm area
+    text_y = total_height/2 - text_area_height/2 - 1.8  # Moved down for equal padding
+    text_size = 4.2  # Scaled to 60%
     
     if CADQUERY_AVAILABLE:
         print("  Adding text 'https://treasures.to'...")
@@ -170,7 +170,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=3, qr_height=1.5, t
         print(f"✓ Created model: {output_file}")
 
 
-def create_3d_qr_code_multicolor(url, output_file, base_height=3, qr_height=1.5, text_height=2):
+def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.9, text_height=1.2):
     """
     Create a 3MF file with two separate colored meshes for Bambu AMS.
     - Base mesh (green)
@@ -183,12 +183,12 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=3, qr_height=1.5,
     qr_img = generate_qr_code(url, size=200)
     qr_array = qr_to_array(qr_img)
     
-    # Dimensions - compact layout
-    qr_size_mm = 70
+    # Dimensions - compact layout (scaled to 60%)
+    qr_size_mm = 42
     pixel_size = qr_size_mm / qr_array.shape[0]
-    text_area_height = 8  # Minimal gap - text sits close to QR
-    margin = 3  # Reduced padding around edges
-    corner_radius = 4  # Rounded corners
+    text_area_height = 5  # Minimal gap - text sits close to QR
+    margin = 2  # Reduced padding around edges
+    corner_radius = 2.5  # Rounded corners
     total_height = text_area_height + qr_size_mm + 2 * margin
     total_width = qr_size_mm + 2 * margin
     
@@ -238,8 +238,8 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=3, qr_height=1.5,
     qr_mesh.merge_vertices()
     
     # Add text if CadQuery available
-    text_y = total_height/2 - text_area_height/2 - 3.0  # Moved down for equal padding
-    text_size = 7.0  # Smaller text for 8mm area
+    text_y = total_height/2 - text_area_height/2 - 1.8  # Moved down for equal padding
+    text_size = 4.2  # Scaled to 60%
     
     if CADQUERY_AVAILABLE:
         print("  Adding text mesh...")
@@ -357,7 +357,7 @@ if __name__ == "__main__":
     if output_file.endswith('.stl'):
         create_3d_qr_code_combined(url, output_file)
         print(f"\n✓ Single STL created: {output_file}")
-        print("  Use 'Change filament at layer' at Z=3mm for two colors")
+        print("  Use 'Change filament at layer' at Z=1.8mm for two colors")
     else:
         if not output_file.endswith('.3mf'):
             output_file += '.3mf'
