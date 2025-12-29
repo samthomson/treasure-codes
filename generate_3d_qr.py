@@ -100,6 +100,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=3, qr_height=1.5, t
             .box(total_width, total_height, base_height)
             .edges("|Z")
             .fillet(corner_radius)
+            .translate((0, 0, base_height/2))  # Move up so bottom is at Z=0
         )
         # Export to temp STL and read triangles
         import tempfile
@@ -200,6 +201,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=3, qr_height=1.5,
             .box(total_width, total_height, base_height)
             .edges("|Z")
             .fillet(corner_radius)
+            .translate((0, 0, base_height/2))  # Move up so bottom is at Z=0
         )
         temp = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
         temp.close()
