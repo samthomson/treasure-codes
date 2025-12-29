@@ -1,6 +1,6 @@
 # Treasure Codes - 3D Printable QR Codes
 
-Generate custom 3D printable QR codes for the treasures app. Each QR code is designed for multi-color printing on Bambu printers with green base and white QR code squares.
+Generate custom 3D printable QR codes for the treasures app. Each QR code is designed for multi-color printing on Bambu printers with AMS (green base + white QR squares).
 
 ## Seed URLs
 
@@ -22,49 +22,56 @@ https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl
 
 ## Setup
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-2. Generate all QR codes:
-   ```bash
-   python generate_all.py
-   ```
+## Usage
 
-This creates STL files in the `stl_files/` directory.
+### Generate all QR codes (batch)
 
-## Multi-Color Printing in Bambu Studio
+```bash
+python generate_all.py
+```
 
-Each QR code generates two STL files:
-- `treasure_XX_base.stl` - Green base with "https://treasures.to" text
-- `treasure_XX_qr_pattern.stl` - White QR code squares
+Creates 3MF files for all seed URLs in the `output/` directory.
 
-### Method 1: Using Modifier Meshes (Recommended)
+### Generate a single QR code
 
-1. Import the base file: `File → Import → STL` (select `treasure_XX_base.stl`)
-2. Import the QR pattern as a modifier:
-   - `File → Import → STL` (select `treasure_XX_qr_pattern.stl`)
-   - In the object list, right-click the QR pattern → `Convert to modifier mesh`
-   - Select the QR pattern modifier, go to `Modifier` tab
-   - Set `Type` to `Color Painting` or use `Flush into object`
-   - Assign white filament to the modifier
-   - Assign green filament to the base
+```bash
+# Multi-color 3MF (for Bambu AMS)
+python generate_3d_qr.py "https://treasures.to/your-url"
 
-3. Print settings:
-   - Layer height: 0.2 mm
-   - Infill: 20%
-   - Supports: Off
-   - Enable AMS for multi-color printing
+# Single STL (for filament change)
+python generate_3d_qr.py "https://treasures.to/your-url" output.stl
+```
 
-### Method 2: Separate Objects
+## Output Formats
 
-1. Import both STL files
-2. Position the QR pattern on top of the base (they should align automatically)
-3. Assign colors:
-   - Select base object → assign green filament
-   - Select QR pattern object → assign white filament
-4. Ensure both objects are at the same Z=0 position
+### 3MF (recommended for Bambu AMS)
+- Single file with two colored parts embedded
+- Opens in Bambu Studio with colors pre-assigned
+- Green base + white QR/text
+
+### STL (for non-AMS printers)
+- Single combined mesh
+- Use "Change filament at layer" at Z=3mm
+- Print base in green, swap to white for QR/text
+
+## Printing in Bambu Studio
+
+### With AMS (multi-filament)
+1. Open the `.3mf` file
+2. Colors should be pre-assigned (green + white)
+3. Map colors to your AMS filament slots
+4. Print!
+
+### Without AMS (single filament)
+1. Open the `.stl` file
+2. Slice the model
+3. In Preview, find layer at Z=3mm (around layer 15)
+4. Right-click → Add pause/filament change
+5. Print - swap filament when paused
 
 ## File Structure
 
@@ -72,26 +79,26 @@ Each QR code generates two STL files:
 treasure-codes/
 ├── README.md
 ├── requirements.txt
-├── generate_3d_qr.py
-├── generate_all.py
-└── stl_files/
-    ├── treasure_01_base.stl
-    ├── treasure_01_qr_pattern.stl
-    ├── treasure_02_base.stl
-    ├── treasure_02_qr_pattern.stl
+├── .gitignore
+├── generate_3d_qr.py      # Main generation script
+├── generate_all.py        # Batch generation for all URLs
+└── output/                # Generated models (gitignored)
+    ├── treasure_01.3mf
+    ├── treasure_02.3mf
     └── ...
 ```
 
+## Scripts Summary
+
+| Script | Purpose |
+|--------|---------|
+| `generate_3d_qr.py` | Main script - generates single QR code (3MF or STL) |
+| `generate_all.py` | Batch script - generates all 4 seed URL QR codes |
+
 ## Customization
 
-To generate a single QR code:
-```bash
-python generate_3d_qr.py "https://treasures.to/your-url" base.stl qr_pattern.stl
-```
-
-Adjust dimensions in `generate_3d_qr.py`:
-- `qr_size_mm`: Size of QR code (default: 50mm)
-- `base_height`: Base plate thickness (default: 2mm)
-- `qr_height`: Height of white squares (default: 1mm)
-- `text_height`: Height of embossed text (default: 1.5mm)
-
+Edit `generate_3d_qr.py` to adjust dimensions:
+- `qr_size_mm = 70` - QR code size (mm)
+- `base_height = 3` - Base plate thickness (mm)
+- `qr_height = 1.5` - Height of QR squares (mm)
+- `text_height = 2` - Height of embossed text (mm)
