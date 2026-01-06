@@ -27,7 +27,8 @@ OUTPUT_DIR = "output"
 SIZE_PRESETS = {
     "small": 40,
     "medium": 50,
-    "large": 60,
+    "large": 55,
+    "xlarge": 60,
 }
 
 
