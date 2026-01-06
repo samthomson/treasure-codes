@@ -368,6 +368,209 @@ def create_3d_qr_code_multicolor(url, output_file, qr_size_mm=50, base_height=1.
     print(f"✓ Created multi-color 3MF: {output_file}")
 
 
+def create_3d_qr_code_inlay(url, output_file, qr_size_mm=50, base_height=1.8, inlay_height=0.6):
+    """
+    Create a 3MF file with flush/inlay design - flat top surface.
+    - Base + background fill (green)
+    - QR pattern inlaid flush with background (white)
+    """
+    import trimesh
+    import zipfile
+    
+    print("  Generating QR code (inlay mode)...")
+    qr_img = generate_qr_code(url, size=200)
+    qr_array = qr_to_array(qr_img)
+    
+    dims = get_dimensions(qr_size_mm)
+    pixel_size = dims["qr_size_mm"] / qr_array.shape[0]
+    total_height = dims["text_area_height"] + dims["qr_size_mm"] + 2 * dims["margin"]
+    total_width = dims["qr_size_mm"] + 2 * dims["margin"]
+    
+    print(f"  Model size: {total_width:.1f}mm x {total_height:.1f}mm (flat top)")
+    print("  Building base mesh (green) with rounded corners...")
+    
+    # Base mesh with rounded corners (using CadQuery)
+    if CADQUERY_AVAILABLE:
+        import tempfile
+        # Full height base (base_height + inlay_height) but we'll cut out the QR area
+        base_cq = (cq.Workplane("XY")
+            .box(total_width, total_height, base_height)
+            .edges("|Z")
+            .fillet(dims["corner_radius"])
+            .translate((0, 0, base_height/2))  # Move up so bottom is at Z=0
+        )
+        temp = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
+        temp.close()
+        cq.exporters.export(base_cq, temp.name)
+        base_mesh = trimesh.load(temp.name)
+        os.unlink(temp.name)
+    else:
+        # Fallback to square corners
+        base_triangles = np.array(create_box_triangles(0, 0, 0, total_width, total_height, base_height))
+        base_vertices = base_triangles.reshape(-1, 3)
+        base_faces = np.arange(len(base_vertices)).reshape(-1, 3)
+        base_mesh = trimesh.Trimesh(vertices=base_vertices, faces=base_faces)
+        base_mesh.merge_vertices()
+    
+    print("  Building inlay layer...")
+    
+    qr_offset_y = -dims["text_area_height"] / 2
+    square_size = pixel_size * 0.95
+    
+    # Green squares (background - where QR is white/0)
+    green_triangles = []
+    # White squares (QR pattern - where QR is black/1)
+    white_triangles = []
+    
+    for i in range(qr_array.shape[0]):
+        for j in range(qr_array.shape[1]):
+            x = (j - qr_array.shape[1]/2) * pixel_size
+            y = (qr_array.shape[0]/2 - i) * pixel_size + qr_offset_y
+            square_triangles = create_box_triangles(x, y, base_height, square_size, square_size, inlay_height)
+            
+            if qr_array[i, j] == 1:
+                # QR square (white)
+                white_triangles.extend(square_triangles)
+            else:
+                # Background (green)
+                green_triangles.extend(square_triangles)
+    
+    # Add green background squares to base mesh
+    if green_triangles:
+        green_triangles = np.array(green_triangles)
+        green_vertices = green_triangles.reshape(-1, 3)
+        green_faces = np.arange(len(green_vertices)).reshape(-1, 3)
+        green_inlay_mesh = trimesh.Trimesh(vertices=green_vertices, faces=green_faces)
+        green_inlay_mesh.merge_vertices()
+        base_mesh = trimesh.util.concatenate([base_mesh, green_inlay_mesh])
+    
+    # White QR mesh
+    white_triangles = np.array(white_triangles)
+    white_vertices = white_triangles.reshape(-1, 3)
+    white_faces = np.arange(len(white_vertices)).reshape(-1, 3)
+    qr_mesh = trimesh.Trimesh(vertices=white_vertices, faces=white_faces)
+    qr_mesh.merge_vertices()
+    
+    # Add text (also inlaid white)
+    text_y = total_height/2 - dims["text_area_height"]/2 - dims["text_y_offset"]
+    
+    if CADQUERY_AVAILABLE:
+        print("  Adding inlaid text mesh...")
+        try:
+            import tempfile
+            
+            text_obj = cq.Workplane("XY").workplane(offset=base_height).center(0, text_y).text(
+                "https://treasures.to", dims["text_size"], inlay_height, font="Arial", kind="bold"
+            )
+            
+            temp_file = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
+            temp_file.close()
+            cq.exporters.export(text_obj, temp_file.name)
+            
+            text_mesh = trimesh.load(temp_file.name)
+            os.unlink(temp_file.name)
+            
+            qr_mesh = trimesh.util.concatenate([qr_mesh, text_mesh])
+        except Exception as e:
+            print(f"  Warning: Could not add text ({e})")
+    
+    print("  Creating 3MF with embedded color assignments...")
+    
+    def mesh_to_3mf_xml(mesh_obj, object_id):
+        verts = mesh_obj.vertices
+        faces = mesh_obj.faces
+        
+        vertices_xml = ""
+        for v in verts:
+            vertices_xml += f'          <vertex x="{v[0]:.6f}" y="{v[1]:.6f}" z="{v[2]:.6f}" />\n'
+        
+        triangles_xml = ""
+        for f in faces:
+            triangles_xml += f'          <triangle v1="{f[0]}" v2="{f[1]}" v3="{f[2]}" pid="1" p1="{object_id-1}" />\n'
+        
+        return vertices_xml, triangles_xml
+    
+    base_verts, base_tris = mesh_to_3mf_xml(base_mesh, 1)
+    qr_verts, qr_tris = mesh_to_3mf_xml(qr_mesh, 2)
+    
+    model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
+  <metadata name="Application">TreasureQR Generator</metadata>
+  <resources>
+    <m:basematerials id="1">
+      <m:base name="Green" displaycolor="#00AA00" />
+      <m:base name="White" displaycolor="#FFFFFF" />
+    </m:basematerials>
+    <object id="1" name="base_green" type="model">
+      <mesh>
+        <vertices>
+{base_verts}        </vertices>
+        <triangles>
+{base_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id="2" name="qr_white" type="model">
+      <mesh>
+        <vertices>
+{qr_verts}        </vertices>
+        <triangles>
+{qr_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id="3" name="treasure_qr_inlay" type="model">
+      <components>
+        <component objectid="1" />
+        <component objectid="2" />
+      </components>
+    </object>
+  </resources>
+  <build>
+    <item objectid="3" />
+  </build>
+</model>'''
+    
+    content_types_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+  <Default Extension="config" ContentType="text/xml" />
+</Types>'''
+    
+    rels_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
+</Relationships>'''
+    
+    model_settings_config = '''<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <object id="1">
+    <metadata key="extruder" value="1"/>
+    <metadata key="name" value="base_green"/>
+  </object>
+  <object id="2">
+    <metadata key="extruder" value="2"/>
+    <metadata key="name" value="qr_white"/>
+  </object>
+  <object id="3">
+    <metadata key="name" value="treasure_qr_inlay"/>
+    <part id="1">
+      <metadata key="extruder" value="1"/>
+    </part>
+    <part id="2">
+      <metadata key="extruder" value="2"/>
+    </part>
+  </object>
+</config>'''
+    
+    with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('[Content_Types].xml', content_types_xml)
+        zf.writestr('_rels/.rels', rels_xml)
+        zf.writestr('3D/3dmodel.model', model_xml)
+        zf.writestr('Metadata/model_settings.config', model_settings_config)
+    
+    print(f"✓ Created inlay 3MF: {output_file}")
+
+
 def parse_size(size_arg):
     """Parse size argument - can be preset name or number in mm."""
     if size_arg in SIZE_PRESETS:
@@ -384,15 +587,19 @@ if __name__ == "__main__":
     
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python generate_3d_qr.py <url> [output.3mf] [size]")
+        print("  python generate_3d_qr.py <url> [output.3mf] [size] [style]")
         print("\nSize options:")
         print("  small  = 40mm")
         print("  medium = 50mm")
-        print("  large  = 60mm")
+        print("  large  = 55mm")
+        print("  xlarge = 60mm")
         print("  Or any number in mm (e.g. 45)")
+        print("\nStyle options:")
+        print("  raised  - QR squares raised on top (default)")
+        print("  inlay   - QR squares flush/inlaid (flat top)")
         print("\nExamples:")
         print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf medium")
-        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf 55")
+        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf large inlay")
         sys.exit(1)
     
     url = sys.argv[1]
@@ -409,7 +616,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 3:
         qr_size_mm = parse_size(sys.argv[3])
     
-    # Generate based on file extension
+    # Parse style
+    style = "raised"
+    if len(sys.argv) > 4:
+        style = sys.argv[4].lower()
+    
+    # Generate based on file extension and style
     if output_file.endswith('.stl'):
         create_3d_qr_code_combined(url, output_file, qr_size_mm=qr_size_mm)
         print(f"\n✓ Single STL created: {output_file}")
@@ -417,6 +629,12 @@ if __name__ == "__main__":
     else:
         if not output_file.endswith('.3mf'):
             output_file += '.3mf'
-        create_3d_qr_code_multicolor(url, output_file, qr_size_mm=qr_size_mm)
-        print(f"\n✓ Multi-color 3MF created: {output_file}")
+        
+        if style == "inlay":
+            create_3d_qr_code_inlay(url, output_file, qr_size_mm=qr_size_mm)
+            print(f"\n✓ Inlay 3MF created: {output_file}")
+            print("  Flat top surface with inlaid QR pattern")
+        else:
+            create_3d_qr_code_multicolor(url, output_file, qr_size_mm=qr_size_mm)
+            print(f"\n✓ Multi-color 3MF created: {output_file}")
         print("  Open in Bambu Studio - colors pre-assigned!")
