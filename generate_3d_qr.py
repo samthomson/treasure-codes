@@ -412,37 +412,44 @@ def create_3d_qr_code_inlay(url, output_file, qr_size_mm=50, base_height=1.8, in
         base_mesh = trimesh.Trimesh(vertices=base_vertices, faces=base_faces)
         base_mesh.merge_vertices()
     
-    print("  Building inlay layer...")
+    print("  Building inlay layer (full surface)...")
     
     qr_offset_y = -dims["text_area_height"] / 2
     square_size = pixel_size * 0.95
     
-    # Green squares (background - where QR is white/0)
-    green_triangles = []
+    # Full green top layer (covers entire surface)
+    if CADQUERY_AVAILABLE:
+        green_top_cq = (cq.Workplane("XY")
+            .box(total_width, total_height, inlay_height)
+            .edges("|Z")
+            .fillet(dims["corner_radius"])
+            .translate((0, 0, base_height + inlay_height/2))
+        )
+        temp = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
+        temp.close()
+        cq.exporters.export(green_top_cq, temp.name)
+        green_top_mesh = trimesh.load(temp.name)
+        os.unlink(temp.name)
+        base_mesh = trimesh.util.concatenate([base_mesh, green_top_mesh])
+    else:
+        # Fallback - full rectangle top layer
+        green_top_triangles = np.array(create_box_triangles(0, 0, base_height, total_width, total_height, inlay_height))
+        green_top_vertices = green_top_triangles.reshape(-1, 3)
+        green_top_faces = np.arange(len(green_top_vertices)).reshape(-1, 3)
+        green_top_mesh = trimesh.Trimesh(vertices=green_top_vertices, faces=green_top_faces)
+        green_top_mesh.merge_vertices()
+        base_mesh = trimesh.util.concatenate([base_mesh, green_top_mesh])
+    
     # White squares (QR pattern - where QR is black/1)
     white_triangles = []
     
     for i in range(qr_array.shape[0]):
         for j in range(qr_array.shape[1]):
-            x = (j - qr_array.shape[1]/2) * pixel_size
-            y = (qr_array.shape[0]/2 - i) * pixel_size + qr_offset_y
-            square_triangles = create_box_triangles(x, y, base_height, square_size, square_size, inlay_height)
-            
             if qr_array[i, j] == 1:
-                # QR square (white)
+                x = (j - qr_array.shape[1]/2) * pixel_size
+                y = (qr_array.shape[0]/2 - i) * pixel_size + qr_offset_y
+                square_triangles = create_box_triangles(x, y, base_height, square_size, square_size, inlay_height)
                 white_triangles.extend(square_triangles)
-            else:
-                # Background (green)
-                green_triangles.extend(square_triangles)
-    
-    # Add green background squares to base mesh
-    if green_triangles:
-        green_triangles = np.array(green_triangles)
-        green_vertices = green_triangles.reshape(-1, 3)
-        green_faces = np.arange(len(green_vertices)).reshape(-1, 3)
-        green_inlay_mesh = trimesh.Trimesh(vertices=green_vertices, faces=green_faces)
-        green_inlay_mesh.merge_vertices()
-        base_mesh = trimesh.util.concatenate([base_mesh, green_inlay_mesh])
     
     # White QR mesh
     white_triangles = np.array(white_triangles)
