@@ -305,10 +305,15 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
 {qr_tris}        </triangles>
       </mesh>
     </object>
+    <object id="3" name="treasure_qr" type="model">
+      <components>
+        <component objectid="1" />
+        <component objectid="2" />
+      </components>
+    </object>
   </resources>
   <build>
-    <item objectid="1" />
-    <item objectid="2" />
+    <item objectid="3" />
   </build>
 </model>'''
     
@@ -316,6 +321,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
   <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+  <Default Extension="config" ContentType="text/xml" />
 </Types>'''
     
     rels_xml = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -323,10 +329,33 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
 </Relationships>'''
     
+    # Bambu Studio specific config for extruder assignments
+    model_settings_config = '''<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <object id="1">
+    <metadata key="extruder" value="1"/>
+    <metadata key="name" value="base_green"/>
+  </object>
+  <object id="2">
+    <metadata key="extruder" value="2"/>
+    <metadata key="name" value="qr_white"/>
+  </object>
+  <object id="3">
+    <metadata key="name" value="treasure_qr"/>
+    <part id="1">
+      <metadata key="extruder" value="1"/>
+    </part>
+    <part id="2">
+      <metadata key="extruder" value="2"/>
+    </part>
+  </object>
+</config>'''
+    
     with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr('[Content_Types].xml', content_types_xml)
         zf.writestr('_rels/.rels', rels_xml)
         zf.writestr('3D/3dmodel.model', model_xml)
+        zf.writestr('Metadata/model_settings.config', model_settings_config)
     
     print(f"✓ Created multi-color 3MF: {output_file}")
 
