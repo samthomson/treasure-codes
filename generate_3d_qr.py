@@ -4,8 +4,9 @@ Generate 3D printable QR codes with embossed text for Bambu printers.
 Multi-color: Green base with white QR code squares.
 
 Usage:
-    python generate_3d_qr.py <url> [output.3mf]   # Multi-color 3MF for AMS
-    python generate_3d_qr.py <url> output.stl     # Single STL (filament change)
+    python generate_3d_qr.py <url> [output.3mf] [size]
+    
+Size presets: small (40mm), medium (50mm), large (60mm), or any number in mm
 """
 
 import os
@@ -14,15 +15,20 @@ from PIL import Image
 import numpy as np
 from stl import mesh
 
-# CadQuery is optional - only needed for text
 try:
     import cadquery as cq
     CADQUERY_AVAILABLE = True
 except ImportError:
     CADQUERY_AVAILABLE = False
 
-# Default output directory
 OUTPUT_DIR = "output"
+
+# Size presets (QR code width in mm)
+SIZE_PRESETS = {
+    "small": 40,
+    "medium": 50,
+    "large": 60,
+}
 
 
 def generate_qr_code(url, size=200, border=4):
@@ -72,24 +78,34 @@ def create_box_triangles(x, y, z, width, depth, height):
     return triangles
 
 
-def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9, text_height=1.2):
+def get_dimensions(qr_size_mm):
+    """Calculate all dimensions scaled proportionally from qr_size_mm."""
+    scale = qr_size_mm / 42  # 42mm was the tuned reference size
+    return {
+        "qr_size_mm": qr_size_mm,
+        "margin": 2 * scale,
+        "text_area_height": 5 * scale,
+        "corner_radius": 2.5 * scale,
+        "text_size": 4.2 * scale,
+        "text_y_offset": 1.8 * scale,
+    }
+
+
+def create_3d_qr_code_combined(url, output_file, qr_size_mm=50, base_height=1.8, qr_height=0.9, text_height=1.2):
     """
     Create a single STL file with base + QR pattern combined.
-    Use filament change at Z=1.8mm for two colors (for non-AMS printers).
+    Use filament change at Z=base_height for two colors (for non-AMS printers).
     """
     print("  Generating QR code...")
     qr_img = generate_qr_code(url, size=200)
     qr_array = qr_to_array(qr_img)
     
-    # Dimensions - compact layout (scaled to 60%)
-    qr_size_mm = 42
-    pixel_size = qr_size_mm / qr_array.shape[0]
-    text_area_height = 5  # Minimal gap - text sits close to QR
-    margin = 2  # Reduced padding around edges
-    corner_radius = 2.5  # Rounded corners
-    total_height = text_area_height + qr_size_mm + 2 * margin
-    total_width = qr_size_mm + 2 * margin
+    dims = get_dimensions(qr_size_mm)
+    pixel_size = dims["qr_size_mm"] / qr_array.shape[0]
+    total_height = dims["text_area_height"] + dims["qr_size_mm"] + 2 * dims["margin"]
+    total_width = dims["qr_size_mm"] + 2 * dims["margin"]
     
+    print(f"  Model size: {total_width:.1f}mm x {total_height:.1f}mm")
     print("  Building mesh...")
     all_triangles = []
     
@@ -99,7 +115,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9,
         base_cq = (cq.Workplane("XY")
             .box(total_width, total_height, base_height)
             .edges("|Z")
-            .fillet(corner_radius)
+            .fillet(dims["corner_radius"])
             .translate((0, 0, base_height/2))  # Move up so bottom is at Z=0
         )
         # Export to temp STL and read triangles
@@ -117,7 +133,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9,
         all_triangles.extend(base_triangles)
     
     # QR squares
-    qr_offset_y = -text_area_height / 2
+    qr_offset_y = -dims["text_area_height"] / 2
     square_size = pixel_size * 0.95
     square_count = 0
     
@@ -139,9 +155,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9,
     for i, tri in enumerate(all_triangles):
         qr_mesh.vectors[i] = tri
     
-    # Add text if CadQuery available
-    text_y = total_height/2 - text_area_height/2 - 1.8  # Moved down for equal padding
-    text_size = 4.2  # Scaled to 60%
+    text_y = total_height/2 - dims["text_area_height"]/2 - dims["text_y_offset"]
     
     if CADQUERY_AVAILABLE:
         print("  Adding text 'https://treasures.to'...")
@@ -149,7 +163,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9,
             import tempfile
             
             text_obj = cq.Workplane("XY").workplane(offset=base_height).center(0, text_y).text(
-                "https://treasures.to", text_size, text_height, font="Arial", kind="bold"
+                "https://treasures.to", dims["text_size"], text_height, font="Arial", kind="bold"
             )
             
             temp_file = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
@@ -170,7 +184,7 @@ def create_3d_qr_code_combined(url, output_file, base_height=1.8, qr_height=0.9,
         print(f"✓ Created model: {output_file}")
 
 
-def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.9, text_height=1.2):
+def create_3d_qr_code_multicolor(url, output_file, qr_size_mm=50, base_height=1.8, qr_height=0.9, text_height=1.2):
     """
     Create a 3MF file with two separate colored meshes for Bambu AMS.
     - Base mesh (green)
@@ -183,15 +197,12 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
     qr_img = generate_qr_code(url, size=200)
     qr_array = qr_to_array(qr_img)
     
-    # Dimensions - compact layout (scaled to 60%)
-    qr_size_mm = 42
-    pixel_size = qr_size_mm / qr_array.shape[0]
-    text_area_height = 5  # Minimal gap - text sits close to QR
-    margin = 2  # Reduced padding around edges
-    corner_radius = 2.5  # Rounded corners
-    total_height = text_area_height + qr_size_mm + 2 * margin
-    total_width = qr_size_mm + 2 * margin
+    dims = get_dimensions(qr_size_mm)
+    pixel_size = dims["qr_size_mm"] / qr_array.shape[0]
+    total_height = dims["text_area_height"] + dims["qr_size_mm"] + 2 * dims["margin"]
+    total_width = dims["qr_size_mm"] + 2 * dims["margin"]
     
+    print(f"  Model size: {total_width:.1f}mm x {total_height:.1f}mm")
     print("  Building base mesh (green) with rounded corners...")
     
     # Base mesh with rounded corners (using CadQuery)
@@ -200,7 +211,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
         base_cq = (cq.Workplane("XY")
             .box(total_width, total_height, base_height)
             .edges("|Z")
-            .fillet(corner_radius)
+            .fillet(dims["corner_radius"])
             .translate((0, 0, base_height/2))  # Move up so bottom is at Z=0
         )
         temp = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
@@ -219,7 +230,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
     print("  Building QR pattern mesh (white)...")
     
     # QR squares mesh
-    qr_offset_y = -text_area_height / 2
+    qr_offset_y = -dims["text_area_height"] / 2
     square_size = pixel_size * 0.95
     qr_triangles = []
     
@@ -237,9 +248,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
     qr_mesh = trimesh.Trimesh(vertices=qr_vertices, faces=qr_faces)
     qr_mesh.merge_vertices()
     
-    # Add text if CadQuery available
-    text_y = total_height/2 - text_area_height/2 - 1.8  # Moved down for equal padding
-    text_size = 4.2  # Scaled to 60%
+    text_y = total_height/2 - dims["text_area_height"]/2 - dims["text_y_offset"]
     
     if CADQUERY_AVAILABLE:
         print("  Adding text mesh...")
@@ -247,7 +256,7 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
             import tempfile
             
             text_obj = cq.Workplane("XY").workplane(offset=base_height).center(0, text_y).text(
-                "https://treasures.to", text_size, text_height, font="Arial", kind="bold"
+                "https://treasures.to", dims["text_size"], text_height, font="Arial", kind="bold"
             )
             
             temp_file = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
@@ -261,7 +270,6 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
         except Exception as e:
             print(f"  Warning: Could not add text ({e})")
     
-    # Create 3MF with embedded colors
     print("  Creating 3MF with embedded color assignments...")
     
     def mesh_to_3mf_xml(mesh_obj, object_id):
@@ -329,7 +337,6 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
 </Relationships>'''
     
-    # Bambu Studio specific config for extruder assignments
     model_settings_config = '''<?xml version="1.0" encoding="UTF-8"?>
 <config>
   <object id="1">
@@ -360,36 +367,55 @@ def create_3d_qr_code_multicolor(url, output_file, base_height=1.8, qr_height=0.
     print(f"✓ Created multi-color 3MF: {output_file}")
 
 
+def parse_size(size_arg):
+    """Parse size argument - can be preset name or number in mm."""
+    if size_arg in SIZE_PRESETS:
+        return SIZE_PRESETS[size_arg]
+    try:
+        return float(size_arg)
+    except ValueError:
+        print(f"Unknown size '{size_arg}'. Using 50mm")
+        return 50
+
+
 if __name__ == "__main__":
     import sys
     
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  Multi-color 3MF (AMS):  python generate_3d_qr.py <url> [output.3mf]")
-        print("  Single STL (no AMS):    python generate_3d_qr.py <url> output.stl")
+        print("  python generate_3d_qr.py <url> [output.3mf] [size]")
+        print("\nSize options:")
+        print("  small  = 40mm")
+        print("  medium = 50mm")
+        print("  large  = 60mm")
+        print("  Or any number in mm (e.g. 45)")
         print("\nExamples:")
-        print("  python generate_3d_qr.py 'https://treasures.to/abc123'")
-        print("  python generate_3d_qr.py 'https://treasures.to/abc123' my_qr.3mf")
+        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf medium")
+        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf 55")
         sys.exit(1)
     
     url = sys.argv[1]
     
-    # Determine output file
+    # Parse output file
     if len(sys.argv) > 2:
         output_file = sys.argv[2]
     else:
-        # Default to output directory
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         output_file = os.path.join(OUTPUT_DIR, f"treasure_qr_{url.split('/')[-1][:20]}.3mf")
     
+    # Parse size
+    qr_size_mm = 50
+    if len(sys.argv) > 3:
+        qr_size_mm = parse_size(sys.argv[3])
+    
     # Generate based on file extension
     if output_file.endswith('.stl'):
-        create_3d_qr_code_combined(url, output_file)
+        create_3d_qr_code_combined(url, output_file, qr_size_mm=qr_size_mm)
         print(f"\n✓ Single STL created: {output_file}")
-        print("  Use 'Change filament at layer' at Z=1.8mm for two colors")
+        print(f"  Use 'Change filament at layer' at Z=1.8mm for two colors")
     else:
         if not output_file.endswith('.3mf'):
             output_file += '.3mf'
-        create_3d_qr_code_multicolor(url, output_file)
+        create_3d_qr_code_multicolor(url, output_file, qr_size_mm=qr_size_mm)
         print(f"\n✓ Multi-color 3MF created: {output_file}")
         print("  Open in Bambu Studio - colors pre-assigned!")
