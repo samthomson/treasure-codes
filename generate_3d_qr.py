@@ -589,59 +589,61 @@ def parse_size(size_arg):
         return 50
 
 
+def generate(url, output_file, size="medium", style="raised"):
+    """Main generation function."""
+    qr_size_mm = parse_size(size)
+    
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    
+    # Ensure correct extension
+    if not output_file.endswith(('.stl', '.3mf')):
+        output_file += '.3mf'
+    
+    # Route to appropriate generator
+    generators = {
+        ('stl', 'raised'): lambda: create_3d_qr_code_combined(url, output_file, qr_size_mm=qr_size_mm),
+        ('stl', 'inlay'): lambda: create_3d_qr_code_combined(url, output_file, qr_size_mm=qr_size_mm),
+        ('3mf', 'raised'): lambda: create_3d_qr_code_multicolor(url, output_file, qr_size_mm=qr_size_mm),
+        ('3mf', 'inlay'): lambda: create_3d_qr_code_inlay(url, output_file, qr_size_mm=qr_size_mm),
+    }
+    
+    file_type = 'stl' if output_file.endswith('.stl') else '3mf'
+    generators[(file_type, style)]()
+    
+    print("\n  Open in Bambu Studio - colors pre-assigned!")
+
+
 if __name__ == "__main__":
-    import sys
+    import argparse
     
-    if len(sys.argv) < 2:
-        print("Usage:")
-        print("  python generate_3d_qr.py <url> [output.3mf] [size] [style]")
-        print("\nSize options:")
-        print("  small  = 40mm")
-        print("  medium = 50mm")
-        print("  large  = 55mm")
-        print("  xlarge = 60mm")
-        print("  Or any number in mm (e.g. 45)")
-        print("\nStyle options:")
-        print("  raised  - QR squares raised on top (default)")
-        print("  inlay   - QR squares flush/inlaid (flat top)")
-        print("\nExamples:")
-        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf medium")
-        print("  python generate_3d_qr.py 'https://treasures.to/abc' output.3mf large inlay")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Generate 3D printable QR codes for Bambu printers",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Size presets:
+  small=40mm, medium=50mm, large=55mm, xlarge=60mm
+  Or use any number (e.g. 45)
+
+Examples:
+  python generate_3d_qr.py 'https://treasures.to/abc' -o output.3mf -s medium
+  python generate_3d_qr.py 'https://treasures.to/abc' -o output.3mf -s large --style inlay
+        """
+    )
     
-    url = sys.argv[1]
+    parser.add_argument("url", help="URL to encode in QR code")
+    parser.add_argument("-o", "--output", default=None, help="Output file path (default: output/treasure_qr_<id>.3mf)")
+    parser.add_argument("-s", "--size", default="medium", help="Size preset or mm value (default: medium)")
+    parser.add_argument("--style", choices=["raised", "inlay"], default="raised", 
+                        help="raised=QR on top, inlay=flat surface (default: raised)")
     
-    # Parse output file
-    if len(sys.argv) > 2:
-        output_file = sys.argv[2]
-    else:
+    args = parser.parse_args()
+    
+    # Default output path
+    if args.output is None:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
-        output_file = os.path.join(OUTPUT_DIR, f"treasure_qr_{url.split('/')[-1][:20]}.3mf")
+        args.output = os.path.join(OUTPUT_DIR, f"treasure_qr_{args.url.split('/')[-1][:20]}.3mf")
     
-    # Parse size
-    qr_size_mm = 50
-    if len(sys.argv) > 3:
-        qr_size_mm = parse_size(sys.argv[3])
-    
-    # Parse style
-    style = "raised"
-    if len(sys.argv) > 4:
-        style = sys.argv[4].lower()
-    
-    # Generate based on file extension and style
-    if output_file.endswith('.stl'):
-        create_3d_qr_code_combined(url, output_file, qr_size_mm=qr_size_mm)
-        print(f"\n✓ Single STL created: {output_file}")
-        print(f"  Use 'Change filament at layer' at Z=1.8mm for two colors")
-    else:
-        if not output_file.endswith('.3mf'):
-            output_file += '.3mf'
-        
-        if style == "inlay":
-            create_3d_qr_code_inlay(url, output_file, qr_size_mm=qr_size_mm)
-            print(f"\n✓ Inlay 3MF created: {output_file}")
-            print("  Flat top surface with inlaid QR pattern")
-        else:
-            create_3d_qr_code_multicolor(url, output_file, qr_size_mm=qr_size_mm)
-            print(f"\n✓ Multi-color 3MF created: {output_file}")
-        print("  Open in Bambu Studio - colors pre-assigned!")
+    generate(args.url, args.output, args.size, args.style)
