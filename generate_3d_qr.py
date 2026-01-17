@@ -10,6 +10,7 @@ Size presets: small (40mm), medium (50mm), large (60mm), or any number in mm
 """
 
 import os
+import hashlib
 import qrcode
 from PIL import Image
 import numpy as np
@@ -641,9 +642,10 @@ Examples:
     
     args = parser.parse_args()
     
-    # Default output path
+    # Default output path - use hash of URL for uniqueness
     if args.output is None:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
-        args.output = os.path.join(OUTPUT_DIR, f"treasure_qr_{args.url.split('/')[-1][:20]}.3mf")
+        url_hash = hashlib.md5(args.url.encode()).hexdigest()[:8]
+        args.output = os.path.join(OUTPUT_DIR, f"treasure_qr_{url_hash}.3mf")
     
     generate(args.url, args.output, args.size, args.style)
