@@ -1,24 +1,6 @@
-# Treasure Codes - 3D Printable QR Codes
+# Treasure Codes
 
-Generate custom 3D printable QR codes for the treasures app. Each QR code is designed for multi-color printing on Bambu printers with AMS (green base + white QR squares).
-
-## Seed URLs
-
-```
-https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsq8nfde6xzcm594ekzmrddahz6umrv9kxcmms95erqwfnvfskzwqkm2c9g
-```
-
-```
-https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsq8r8v4hx2unpdskk7unpdenk2ttzv9ehxtfjxqunxcnpvyuqgl6ww4
-```
-
-```
-https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsqgmfde6x2un9wd6x2epdd4shymm0dckkkctwvashymm095erqwfnvfskzwqayajqs
-```
-
-```
-https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsqgm90pcx2unfv4hxxety943k7enxv4jj6arpwfekjetj95erqwfnvfskzwqwdur7t
-```
+Multi-color **3MF** QR plates for **Bambu Studio + AMS** (green base, white QR and label text).
 
 ## Setup
 
@@ -26,79 +8,51 @@ https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl
 pip install -r requirements.txt
 ```
 
-## Usage
+Uses **CadQuery** for rounded corners and embossed text.
 
-### Generate all QR codes (batch)
+## One URL — `generate_3d_qr.py`
 
-```bash
-python generate_all.py
-```
-
-Creates 3MF files for all seed URLs in the `output/` directory.
-
-### Generate a single QR code
+Writes `output/treasure_qr_<hash>.3mf` unless you pass `-o`.
 
 ```bash
-# Multi-color 3MF (for Bambu AMS)
-python generate_3d_qr.py "https://treasures.to/your-url"
-
-# Single STL (for filament change)
-python generate_3d_qr.py "https://treasures.to/your-url" output.stl
+python generate_3d_qr.py "https://treasures.to/naddr1qfjunkaaaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqujunkaaa"
+python generate_3d_qr.py "https://treasures.to/naddr1qfjunkbbbqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqujunkbbb" -o ./out/plate.3mf
+python generate_3d_qr.py "https://treasures.to/naddr1qfjunkcccqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqujunkccc" -s large --style inlay -o ./out/inlay.3mf
 ```
 
-## Output Formats
+**`-s`**: `small` (40mm) · `medium` (50, default) · `large` · `xlarge` · or a number in mm.  
+**`--style`**: `raised` (default) · `inlay`.  
+More options: `python generate_3d_qr.py --help`.
 
-### 3MF (recommended for Bambu AMS)
-- Single file with two colored parts embedded
-- Opens in Bambu Studio with colors pre-assigned
-- Green base + white QR/text
+## Batch — `generate_all.py`
 
-### STL (for non-AMS printers)
-- Single combined mesh
-- Use "Change filament at layer" at Z=3mm
-- Print base in green, swap to white for QR/text
+Same generator as above, but **only** via a text file: **one URL per line** (lines starting with `#` are comments). Outputs `qr_01.3mf`, `qr_02.3mf`, … into `output/` unless you pass `-d`.
 
-## Printing in Bambu Studio
+Same shape as `urls_example.text` in this repo (junk `naddr` placeholders — swap for real links).
 
-### With AMS (multi-filament)
-1. Open the `.3mf` file
-2. Colors should be pre-assigned (green + white)
-3. Map colors to your AMS filament slots
-4. Print!
-
-### Without AMS (single filament)
-1. Open the `.stl` file
-2. Slice the model
-3. In Preview, find layer at Z=3mm (around layer 15)
-4. Right-click → Add pause/filament change
-5. Print - swap filament when paused
-
-## File Structure
-
-```
-treasure-codes/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── generate_3d_qr.py      # Main generation script
-├── generate_all.py        # Batch generation for all URLs
-└── output/                # Generated models (gitignored)
-    ├── treasure_01.3mf
-    ├── treasure_02.3mf
-    └── ...
+```bash
+cp urls_example.text urls.txt
+# edit urls.txt …
+python generate_all.py urls.txt
+python generate_all.py urls.txt -d ./out -s medium --style raised
 ```
 
-## Scripts Summary
+`python generate_all.py --help`
 
-| Script | Purpose |
-|--------|---------|
-| `generate_3d_qr.py` | Main script - generates single QR code (3MF or STL) |
-| `generate_all.py` | Batch script - generates all 4 seed URL QR codes |
+## Print
 
-## Customization
+Open the `.3mf` in Bambu Studio, map green / white to AMS slots, slice, print.
 
-Edit `generate_3d_qr.py` to adjust dimensions:
-- `qr_size_mm = 70` - QR code size (mm)
-- `base_height = 3` - Base plate thickness (mm)
-- `qr_height = 1.5` - Height of QR squares (mm)
-- `text_height = 2` - Height of embossed text (mm)
+## Layout
+
+| File | Role |
+|------|------|
+| `generate_3d_qr.py` | Main: one URL → one `.3mf` |
+| `generate_all.py` | Batch: `python generate_all.py urls.txt` |
+| `urls_example.text` | Example list (junk `naddr` placeholders); copy to `urls.txt` |
+
+Generated files go in `output/` (gitignored). Keep your real list in `urls.txt` (gitignored).
+
+## Tuning
+
+Change geometry defaults in `generate_3d_qr.py`; for width only, use **`-s`**.

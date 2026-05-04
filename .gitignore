@@ -1,3 +1,6 @@
+# Local URL lists for batch generation (optional)
+urls.txt
+
 # Generated 3D model files
 output/
 *.stl

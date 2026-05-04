@@ -1,48 +1,78 @@
 #!/usr/bin/env python3
 """
-Generate 3D QR codes for all treasure URLs.
-Outputs multi-color 3MF files ready for Bambu AMS printing.
+Batch wrapper over generate_3d_qr.generate(): reads a URL list file → qr_01.3mf, …
 """
 
-from generate_3d_qr import create_3d_qr_code_multicolor
+import argparse
 import os
 
-# Seed URLs from README
-URLS = [
-    "https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsq8nfde6xzcm594ekzmrddahz6umrv9kxcmms95erqwfnvfskzwqkm2c9g",
-    "https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsq8r8v4hx2unpdskk7unpdenk2ttzv9ehxtfjxqunxcnpvyuqgl6ww4",
-    "https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsqgmfde6x2un9wd6x2epdd4shymm0dckkkctwvashymm095erqwfnvfskzwqayajqs",
-    "https://treasures.to/naddr1qvzqqqyj3spzqgynh25xy8zmy40g7n7zcm7lcyxc54vc5f23wejwl2agvpe47ypsqy28wumn8ghj7un9d3shjtnyv9kh2uewd9hsqgm90pcx2unfv4hxxety943k7enxv4jj6arpwfekjetj95erqwfnvfskzwqwdur7t",
-]
-
-OUTPUT_DIR = "output"
+from generate_3d_qr import OUTPUT_DIR, generate
 
 
-def generate_all():
-    """Generate 3MF files for all URLs."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    for i, url in enumerate(URLS, 1):
-        output_file = os.path.join(OUTPUT_DIR, f"treasure_{i:02d}.3mf")
-        
-        print(f"\n[{i}/{len(URLS)}] Generating QR code for treasure {i}...")
-        print(f"  URL: {url[:60]}...")
-        
+def load_urls_from_file(path):
+    urls = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+    return urls
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Batch-generate multi-color 3MF QR plates from a URL list file (Bambu AMS).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "url_file",
+        help="Text file with one URL per line (# starts a comment)",
+    )
+    parser.add_argument(
+        "-d",
+        "--output-dir",
+        default=OUTPUT_DIR,
+        help="Directory for generated files",
+    )
+    parser.add_argument(
+        "-s",
+        "--size",
+        default="medium",
+        help="Size preset or mm value (same as generate_3d_qr.py)",
+    )
+    parser.add_argument(
+        "--style",
+        choices=["raised", "inlay"],
+        default="raised",
+        help="raised=QR on top; inlay=flat surface",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.url_file):
+        parser.error(f"Not a file: {args.url_file!r}")
+
+    urls = load_urls_from_file(args.url_file)
+    if not urls:
+        parser.error(f"No URLs found in {args.url_file!r} (add one URL per line)")
+
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    for i, url in enumerate(urls, 1):
+        output_file = os.path.join(args.output_dir, f"qr_{i:02d}.3mf")
+        print(f"\n[{i}/{len(urls)}] Generating…")
+        print(f"  URL: {url[:72]}{'…' if len(url) > 72 else ''}")
         try:
-            create_3d_qr_code_multicolor(url, output_file)
+            generate(url, output_file, args.size, args.style)
             print(f"  ✓ Saved: {output_file}")
         except Exception as e:
             print(f"  ✗ Error: {e}")
             import traceback
+
             traceback.print_exc()
-    
-    print(f"\n{'='*60}")
-    print(f"✓ Generated {len(URLS)} multi-color 3MF files in '{OUTPUT_DIR}/'")
-    print(f"\n  In Bambu Studio:")
-    print(f"  1. Open any .3mf file")
-    print(f"  2. Two parts with colors pre-assigned (green base, white QR)")
-    print(f"  3. Map to your AMS filaments and print!")
+
+    print(f"\n{'=' * 60}")
+    print(f"Done. {len(urls)} file(s) in {args.output_dir!r}")
 
 
 if __name__ == "__main__":
-    generate_all()
+    main()
