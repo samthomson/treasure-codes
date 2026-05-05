@@ -1,6 +1,9 @@
 # Treasure Codes
 
-Multi-color **3MF** models for **Bambu Studio + AMS** (green base, white QR and label text). Two modes: standalone **QR plates**, or a **container** (bayonet-mount box) with the QR on its lid.
+Generate multi-color **3MF** models for **Bambu Studio + AMS**:
+
+- **QR plate** — flat plate with raised QR code
+- **Container** — bayonet-mount box with QR on the lid
 
 ## Setup
 
