@@ -4,7 +4,9 @@ urls.txt
 # Generated 3D model files
 output/
 *.stl
-*.3mf
+
+# Container templates are committed; only ignore generated 3MFs
+!containers/*.3mf
 
 # macOS
 .DS_Store

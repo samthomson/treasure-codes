@@ -1,6 +1,6 @@
 # Treasure Codes
 
-Multi-color **3MF** QR plates for **Bambu Studio + AMS** (green base, white QR and label text).
+Multi-color **3MF** models for **Bambu Studio + AMS** (green base, white QR and label text). Two modes: standalone **QR plates**, or a **container** (bayonet-mount box) with the QR on its lid.
 
 ## Setup
 
@@ -39,20 +39,36 @@ python generate_all.py urls.txt -d ./out -s medium --style raised
 
 `python generate_all.py --help`
 
+## Container with QR lid — `generate_container.py`
+
+Combines a bayonet-mount container template with a QR code on its lid. Two variants: `large` (76mm) and `small` (70mm). QR auto-sizes to fit the lid.
+
+```bash
+python generate_container.py "https://treasures.to/naddr1qfjunkaaaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqujunkaaa"
+python generate_container.py "https://treasures.to/naddr1qfjunkbbbqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqujunkbbb" -v small -o ./out/box.3mf
+```
+
+**`-v`**: `large` (default) · `small`.  
+**`-s`**: override QR size in mm.  
+**`-t`**: use a different container template 3MF.  
+`python generate_container.py --help`
+
 ## Print
 
-Open the `.3mf` in Bambu Studio, map green / white to AMS slots, slice, print.
+Open any `.3mf` in Bambu Studio, map green / white to AMS slots, slice, print.
 
 ## Layout
 
 | File | Role |
 |------|------|
-| `generate_3d_qr.py` | Main: one URL → one `.3mf` |
-| `generate_all.py` | Batch: `python generate_all.py urls.txt` |
-| `urls_example.text` | Example list (junk `naddr` placeholders); copy to `urls.txt` |
+| `generate_3d_qr.py` | One URL → QR plate `.3mf` |
+| `generate_all.py` | Batch plates from a URL list file |
+| `generate_container.py` | One URL → container with QR lid `.3mf` |
+| `containers/bayonetbox.3mf` | Container template (bundled) |
+| `urls_example.text` | Example URL list; copy to `urls.txt` |
 
-Generated files go in `output/` (gitignored). Keep your real list in `urls.txt` (gitignored).
+Generated files go in `output/` (gitignored). Keep your real URL list in `urls.txt` (gitignored).
 
 ## Tuning
 
-Change geometry defaults in `generate_3d_qr.py`; for width only, use **`-s`**.
+QR plate geometry defaults live in `generate_3d_qr.py`; for width only, use **`-s`**. Container QR auto-sizes to ~75% of the lid diameter by default.
