@@ -8,6 +8,7 @@ Output has two color groups for Bambu AMS:
   extruder 2 (white) — QR code on lid top
 
 Container and lid are laid out side by side, both flat on the build plate.
+Can also export lids only for batch lid printing workflows.
 """
 
 import argparse
@@ -51,6 +52,15 @@ VARIANTS = {
         "container_bottom_z": -15.5,
         "outer_radius": 39.5,
     },
+}
+
+BODY_HEIGHT_MODES = {
+    "small": 0.5,
+    "medium": 1.0,
+    "large": 2.0,
+    # Backward-compatible aliases.
+    "short": 0.5,
+    "tall": 2.0,
 }
 
 
@@ -113,13 +123,55 @@ def mesh_to_verts_tris_xml(mesh_obj, material_index):
     return verts_xml, tris_xml
 
 
-def generate_container(url, output_file, template=DEFAULT_TEMPLATE, variant="large", qr_size=None):
+def apply_body_height_mode(container_mesh, mode, preserve_top_mm):
+    """Scale only the lower container body while keeping the top clasp geometry unchanged."""
+    if mode not in BODY_HEIGHT_MODES:
+        raise ValueError(
+            f"Unknown body height mode {mode!r}; choose from {list(BODY_HEIGHT_MODES)}"
+        )
+
+    factor = BODY_HEIGHT_MODES[mode]
+    if factor == 1.0:
+        return
+
+    z = container_mesh.vertices[:, 2]
+    z_max = float(np.max(z))
+    cutoff_z = z_max - preserve_top_mm
+
+    # Anchor scaling at cutoff_z: geometry at/above cutoff stays unchanged.
+    lower_mask = z < cutoff_z
+    z[lower_mask] = cutoff_z - (cutoff_z - z[lower_mask]) * factor
+
+    # Keep model printable with bottom on the build plate.
+    z -= float(np.min(z))
+    container_mesh.vertices[:, 2] = z
+
+
+def generate_container(
+    url,
+    output_file,
+    template=DEFAULT_TEMPLATE,
+    variant="large",
+    qr_size=None,
+    lids_only=False,
+    base_only=False,
+    body_height="medium",
+):
     """Main entry: load container + lid, generate QR, write combined 3MF.
 
     Produces exactly the same 3MF structure as the working QR plates:
     one composite build item containing mesh parts with pid/p1 material refs.
     Container and lid are separate objects so they can be individually deleted.
+    If lids_only is True, only exports lid + qr_code.
+    If base_only is True, only exports the container bottom (no lid, no QR).
+    body_height scales only the container bottom: small=0.5x, medium=1x, large=2x.
     """
+    if lids_only and base_only:
+        raise ValueError("Choose only one of lids_only/base_only")
+
+    if not base_only and not url:
+        raise ValueError("url is required unless base_only=True")
+
     if variant not in VARIANTS:
         raise ValueError(f"Unknown variant {variant!r}; choose from {list(VARIANTS)}")
 
@@ -133,28 +185,172 @@ def generate_container(url, output_file, template=DEFAULT_TEMPLATE, variant="lar
 
     print(f"  Loading container template ({variant})…")
     container_mesh = load_mesh_from_3mf_object(template, spec["container"])
-    lid_mesh = load_mesh_from_3mf_object(template, spec["lid"])
+    lid_mesh = None if base_only else load_mesh_from_3mf_object(template, spec["lid"])
 
     # Shift both to Z=0 (bottom on build plate)
     container_mesh.vertices[:, 2] -= spec["container_bottom_z"]
-    lid_mesh.vertices[:, 2] -= spec["lid_bottom_z"]
+    if lid_mesh is not None:
+        lid_mesh.vertices[:, 2] -= spec["lid_bottom_z"]
 
-    lid_top_z = spec["lid_top_z"] - spec["lid_bottom_z"]
+    if not lids_only:
+        # Keep top clasp area unchanged; stretch/compress lower body only.
+        apply_body_height_mode(container_mesh, body_height, preserve_top_mm=8.0)
 
-    # Place lid beside container with a gap
-    gap = 10
-    x_offset = spec["outer_radius"] * 2 + gap
-    lid_mesh.vertices[:, 0] += x_offset
+    lid_verts = lid_tris = qr_verts = qr_tris = None
+    if not base_only:
+        lid_top_z = spec["lid_top_z"] - spec["lid_bottom_z"]
 
-    # Sink QR 0.3mm into the lid for proper color boundary
-    qr_base_z = lid_top_z - 0.3
-    print(f"  Generating QR ({qr_size_mm:.0f}mm) on lid top (Z={lid_top_z:.1f})…")
-    qr_mesh = build_qr_mesh(url, qr_size_mm, base_z=qr_base_z)
-    qr_mesh.vertices[:, 0] += x_offset
+        # Place lid beside container with a gap
+        gap = 10
+        x_offset = spec["outer_radius"] * 2 + gap
+        lid_mesh.vertices[:, 0] += x_offset
 
-    container_verts, container_tris = mesh_to_verts_tris_xml(container_mesh, 0)
-    lid_verts, lid_tris = mesh_to_verts_tris_xml(lid_mesh, 0)
-    qr_verts, qr_tris = mesh_to_verts_tris_xml(qr_mesh, 1)
+        # Sink QR 0.3mm into the lid for proper color boundary
+        qr_base_z = lid_top_z - 0.3
+        print(f"  Generating QR ({qr_size_mm:.0f}mm) on lid top (Z={lid_top_z:.1f})…")
+        qr_mesh = build_qr_mesh(url, qr_size_mm, base_z=qr_base_z)
+        qr_mesh.vertices[:, 0] += x_offset
+
+        lid_verts, lid_tris = mesh_to_verts_tris_xml(lid_mesh, 0)
+        qr_verts, qr_tris = mesh_to_verts_tris_xml(qr_mesh, 1)
+
+    if base_only:
+        container_verts, container_tris = mesh_to_verts_tris_xml(container_mesh, 0)
+        resources_xml = f"""    <object id=\"1\" name=\"container\" type=\"model\">
+      <mesh>
+        <vertices>
+{container_verts}        </vertices>
+        <triangles>
+{container_tris}        </triangles>
+      </mesh>
+    </object>"""
+        build_xml = """  <build>
+    <item objectid=\"1\" />
+  </build>"""
+        model_settings_config = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<config>
+  <object id=\"1\">
+    <metadata key=\"extruder\" value=\"1\"/>
+    <metadata key=\"name\" value=\"container\"/>
+  </object>
+</config>"""
+    elif lids_only:
+        resources_xml = f"""    <object id=\"1\" name=\"lid\" type=\"model\">
+      <mesh>
+        <vertices>
+{lid_verts}        </vertices>
+        <triangles>
+{lid_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id=\"2\" name=\"qr_code\" type=\"model\">
+      <mesh>
+        <vertices>
+{qr_verts}        </vertices>
+        <triangles>
+{qr_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id=\"3\" name=\"lid_group\" type=\"model\">
+      <components>
+        <component objectid=\"1\" />
+        <component objectid=\"2\" />
+      </components>
+    </object>"""
+        build_xml = """  <build>
+    <item objectid=\"3\" />
+  </build>"""
+        model_settings_config = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<config>
+  <object id=\"1\">
+    <metadata key=\"extruder\" value=\"1\"/>
+    <metadata key=\"name\" value=\"lid\"/>
+  </object>
+  <object id=\"2\">
+    <metadata key=\"extruder\" value=\"2\"/>
+    <metadata key=\"name\" value=\"qr_code\"/>
+  </object>
+  <object id=\"3\">
+    <metadata key=\"name\" value=\"lid_group\"/>
+    <part id=\"1\">
+      <metadata key=\"extruder\" value=\"1\"/>
+    </part>
+    <part id=\"2\">
+      <metadata key=\"extruder\" value=\"2\"/>
+    </part>
+  </object>
+</config>"""
+    else:
+        container_verts, container_tris = mesh_to_verts_tris_xml(container_mesh, 0)
+        resources_xml = f"""    <object id=\"1\" name=\"container\" type=\"model\">
+      <mesh>
+        <vertices>
+{container_verts}        </vertices>
+        <triangles>
+{container_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id=\"2\" name=\"lid\" type=\"model\">
+      <mesh>
+        <vertices>
+{lid_verts}        </vertices>
+        <triangles>
+{lid_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id=\"3\" name=\"qr_code\" type=\"model\">
+      <mesh>
+        <vertices>
+{qr_verts}        </vertices>
+        <triangles>
+{qr_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id=\"4\" name=\"container_group\" type=\"model\">
+      <components>
+        <component objectid=\"1\" />
+      </components>
+    </object>
+    <object id=\"5\" name=\"lid_group\" type=\"model\">
+      <components>
+        <component objectid=\"2\" />
+        <component objectid=\"3\" />
+      </components>
+    </object>"""
+        build_xml = """  <build>
+    <item objectid=\"4\" />
+    <item objectid=\"5\" />
+  </build>"""
+        model_settings_config = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<config>
+  <object id=\"1\">
+    <metadata key=\"extruder\" value=\"1\"/>
+    <metadata key=\"name\" value=\"container\"/>
+  </object>
+  <object id=\"2\">
+    <metadata key=\"extruder\" value=\"1\"/>
+    <metadata key=\"name\" value=\"lid\"/>
+  </object>
+  <object id=\"3\">
+    <metadata key=\"extruder\" value=\"2\"/>
+    <metadata key=\"name\" value=\"qr_code\"/>
+  </object>
+  <object id=\"4\">
+    <metadata key=\"name\" value=\"container_group\"/>
+    <part id=\"1\">
+      <metadata key=\"extruder\" value=\"1\"/>
+    </part>
+  </object>
+  <object id=\"5\">
+    <metadata key=\"name\" value=\"lid_group\"/>
+    <part id=\"2\">
+      <metadata key=\"extruder\" value=\"1\"/>
+    </part>
+    <part id=\"3\">
+      <metadata key=\"extruder\" value=\"2\"/>
+    </part>
+  </object>
+</config>"""
 
     model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
@@ -164,46 +360,9 @@ def generate_container(url, output_file, template=DEFAULT_TEMPLATE, variant="lar
       <m:base name="Green" displaycolor="#00AA00" />
       <m:base name="White" displaycolor="#FFFFFF" />
     </m:basematerials>
-    <object id="1" name="container" type="model">
-      <mesh>
-        <vertices>
-{container_verts}        </vertices>
-        <triangles>
-{container_tris}        </triangles>
-      </mesh>
-    </object>
-    <object id="2" name="lid" type="model">
-      <mesh>
-        <vertices>
-{lid_verts}        </vertices>
-        <triangles>
-{lid_tris}        </triangles>
-      </mesh>
-    </object>
-    <object id="3" name="qr_code" type="model">
-      <mesh>
-        <vertices>
-{qr_verts}        </vertices>
-        <triangles>
-{qr_tris}        </triangles>
-      </mesh>
-    </object>
-    <object id="4" name="container_group" type="model">
-      <components>
-        <component objectid="1" />
-      </components>
-    </object>
-    <object id="5" name="lid_group" type="model">
-      <components>
-        <component objectid="2" />
-        <component objectid="3" />
-      </components>
-    </object>
+{resources_xml}
   </resources>
-  <build>
-    <item objectid="4" />
-    <item objectid="5" />
-  </build>
+{build_xml}
 </model>'''
 
     content_types_xml = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -218,37 +377,6 @@ def generate_container(url, output_file, template=DEFAULT_TEMPLATE, variant="lar
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
 </Relationships>'''
 
-    model_settings_config = '''<?xml version="1.0" encoding="UTF-8"?>
-<config>
-  <object id="1">
-    <metadata key="extruder" value="1"/>
-    <metadata key="name" value="container"/>
-  </object>
-  <object id="2">
-    <metadata key="extruder" value="1"/>
-    <metadata key="name" value="lid"/>
-  </object>
-  <object id="3">
-    <metadata key="extruder" value="2"/>
-    <metadata key="name" value="qr_code"/>
-  </object>
-  <object id="4">
-    <metadata key="name" value="container_group"/>
-    <part id="1">
-      <metadata key="extruder" value="1"/>
-    </part>
-  </object>
-  <object id="5">
-    <metadata key="name" value="lid_group"/>
-    <part id="2">
-      <metadata key="extruder" value="1"/>
-    </part>
-    <part id="3">
-      <metadata key="extruder" value="2"/>
-    </part>
-  </object>
-</config>'''
-
     output_dir = os.path.dirname(output_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
@@ -259,8 +387,15 @@ def generate_container(url, output_file, template=DEFAULT_TEMPLATE, variant="lar
         zf.writestr("3D/3dmodel.model", model_xml)
         zf.writestr("Metadata/model_settings.config", model_settings_config)
 
-    print(f"✓ Created container 3MF: {output_file}")
-    print("  Container and lid+QR are separate parts in the composite.")
+    if lids_only:
+        print(f"✓ Created lid-only 3MF: {output_file}")
+        print("  Lid+QR are separate parts in the composite.")
+    elif base_only:
+        print(f"✓ Created container-base 3MF: {output_file}")
+        print("  Container bottom only (no lid, no QR).")
+    else:
+        print(f"✓ Created container 3MF: {output_file}")
+        print("  Container and lid+QR are separate parts in the composite.")
 
 
 if __name__ == "__main__":
@@ -268,7 +403,12 @@ if __name__ == "__main__":
         description="Generate a container 3MF with QR code on the lid (Bambu AMS).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("url", help="URL to encode in QR code on the lid")
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=None,
+        help="URL to encode in QR code on the lid (not required with --base-only)",
+    )
     parser.add_argument(
         "-o", "--output", default=None,
         help="Output 3MF path (default: output/container_qr_<hash>.3mf)",
@@ -285,16 +425,52 @@ if __name__ == "__main__":
         "-t", "--template", default=DEFAULT_TEMPLATE,
         help="Path to container template 3MF (default: containers/bayonetbox.3mf)",
     )
+    parser.add_argument(
+        "--lids-only",
+        action="store_true",
+        help="Export only lid + QR (omit container base)",
+    )
+    parser.add_argument(
+        "--base-only",
+        action="store_true",
+        help="Export only container bottom (omit lid and QR)",
+    )
+    parser.add_argument(
+        "--body-height",
+        choices=list(BODY_HEIGHT_MODES),
+        default="medium",
+        help="Container body height mode: small=0.5x, medium=1x, large=2x (top clasp unchanged)",
+    )
+    parser.add_argument(
+        "--container-size",
+        choices=["small", "medium", "large"],
+        default=None,
+        help="Alias for --body-height",
+    )
     args = parser.parse_args()
 
+    if not args.base_only and not args.url:
+        parser.error("url is required unless --base-only is provided")
+
     if args.output is None:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        url_hash = hashlib.md5(args.url.encode()).hexdigest()[:8]
-        args.output = os.path.join(OUTPUT_DIR, f"container_qr_{url_hash}.3mf")
+        if args.base_only:
+            out_dir = os.path.join(OUTPUT_DIR, "containers")
+            os.makedirs(out_dir, exist_ok=True)
+            size_label = args.container_size or args.body_height
+            args.output = os.path.join(
+                out_dir, f"container_base_{size_label}_{args.variant}.3mf"
+            )
+        else:
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            url_hash = hashlib.md5(args.url.encode()).hexdigest()[:8]
+            args.output = os.path.join(OUTPUT_DIR, f"container_qr_{url_hash}.3mf")
 
     generate_container(
         args.url, args.output,
         template=args.template,
         variant=args.variant,
         qr_size=args.size,
+        lids_only=args.lids_only,
+        base_only=args.base_only,
+        body_height=args.container_size or args.body_height,
     )
