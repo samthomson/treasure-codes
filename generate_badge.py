@@ -416,15 +416,19 @@ def add_text_with_outline(
     kind="regular",
     outline_delta=0.6,
     top_lift=0.18,
+    outline_height=None,
+    fill_height=None,
 ):
     """Render text twice: larger underlay + normal foreground."""
+    oh = height if outline_height is None else outline_height
+    fh = height if fill_height is None else fill_height
     outline_mesh = add_text_line(
         outline_mesh,
         text,
         x,
         y,
         size + outline_delta,
-        height,
+        oh,
         base_height,
         font_candidates=font_candidates,
         kind=kind,
@@ -435,7 +439,7 @@ def add_text_with_outline(
         x,
         y,
         size,
-        height,
+        fh,
         base_height,
         font_candidates=font_candidates,
         kind=kind,
@@ -458,6 +462,8 @@ def add_monospace_text_with_outline(
     kind="regular",
     outline_offset=0.22,
     top_lift=0.06,
+    outline_height=None,
+    fill_height=None,
 ):
     """Draw outlined text one glyph at a time to keep alignment tight."""
     text = text or ""
@@ -487,24 +493,24 @@ def add_monospace_text_with_outline(
                 x + dx,
                 y + dy,
                 size,
-                height,
+                height if outline_height is None else outline_height,
                 base_height,
                 font_candidates=font_candidates,
                 kind=kind,
             )
-        fill_mesh = add_text_line(
-            fill_mesh,
+        char_fill_mesh = add_text_line(
+            None,
             ch,
             x,
             y,
             size,
-            height,
+            height if fill_height is None else fill_height,
             base_height,
             font_candidates=font_candidates,
             kind=kind,
         )
-        if fill_mesh is not None:
-            fill_mesh = lift_mesh(fill_mesh, top_lift)
+        char_fill_mesh = lift_mesh(char_fill_mesh, top_lift)
+        fill_mesh = concat_meshes(fill_mesh, char_fill_mesh)
     return fill_mesh, outline_mesh
 
 
@@ -670,6 +676,7 @@ def create_badge(
     qr_center_y = qr_top - qr_size_mm / 2
     qr_right = qr_center_x + qr_size_mm / 2
     qr_bottom = qr_center_y - qr_size_mm / 2
+    detail_base_z = base_height - 0.03
 
     panel_left = qr_right + qr_gap
     panel_right = badge_width / 2 - 2.2
@@ -691,14 +698,14 @@ def create_badge(
         qr_size_mm=qr_size_mm,
         center_x=qr_center_x,
         center_y=qr_center_y,
-        base_z=base_height + qr_background_height - 0.03,
+        base_z=detail_base_z + qr_background_height - 0.03,
         qr_height=qr_height,
     )
     qr_bg_mesh = build_qr_background_mesh(
         center_x=qr_center_x,
         center_y=qr_center_y,
         qr_size_mm=qr_size_mm,
-        base_z=base_height,
+        base_z=detail_base_z,
         layer_height=qr_background_height,
     )
 
@@ -719,7 +726,7 @@ def create_badge(
         center_x=icon_cx,
         center_y=top_line_y,
         target_width_mm=icon_w,
-        base_z=base_height,
+        base_z=detail_base_z,
         height=text_height,
     )
     if logo_mesh is not None:
@@ -736,7 +743,7 @@ def create_badge(
         top_line_y,
         company_size,
         text_height,
-        base_height,
+        detail_base_z,
         font_candidates=[company_font, "Outfit", "Arial"],
     )
 
@@ -752,6 +759,8 @@ def create_badge(
     name_center = name_left + name_w / 2
     bar_left = name_left + name_w + 0.7
 
+    name_outline_h = max(0.5, text_height * 0.55)
+    name_fill_h = max(0.5, text_height * 0.55)
     orange_mesh, black_mesh = add_monospace_text_with_outline(
         orange_mesh,
         black_mesh,
@@ -760,11 +769,13 @@ def create_badge(
         name_y,
         name_size,
         text_height,
-        base_height,
+        detail_base_z,
         font_candidates=mono_fonts,
         kind="regular",
         outline_offset=0.20,
-        top_lift=0.06,
+        top_lift=name_outline_h + 0.01,
+        outline_height=name_outline_h,
+        fill_height=name_fill_h,
     )
     # Render prompt/cursor in monospace so it reads like terminal input.
     black_mesh = add_text_line(
@@ -774,7 +785,7 @@ def create_badge(
         name_y,
         name_size,
         text_height,
-        base_height,
+        detail_base_z,
         font_candidates=mono_fonts,
         kind="regular",
     )
@@ -785,7 +796,7 @@ def create_badge(
         name_y,
         name_size * 1.02,
         text_height,
-        base_height,
+        detail_base_z,
         font_candidates=mono_fonts,
         kind="regular",
     )
@@ -793,12 +804,14 @@ def create_badge(
     # Shape line: normalize every emoji into the same large bbox.
     shape_box_width = 27.0
     shape_box_height = 16.0
+    shape_outline_h = max(0.55, text_height * 0.60)
+    shape_fill_h = max(0.55, text_height * 0.60)
     shape_mesh = build_shape_mesh(
         shape,
         (line_x + panel_right) / 2,
         shape_y + 1.0,
-        base_height,
-        text_height,
+        detail_base_z + shape_outline_h + 0.01,
+        shape_fill_h,
         max_width_mm=shape_box_width,
         max_height_mm=shape_box_height,
     )
@@ -806,8 +819,8 @@ def create_badge(
         shape,
         (line_x + panel_right) / 2,
         shape_y + 1.0,
-        base_height,
-        text_height,
+        detail_base_z,
+        shape_outline_h,
         max_width_mm=shape_box_width * 1.08,
         max_height_mm=shape_box_height * 1.08,
         outline_iterations=2,
@@ -815,7 +828,6 @@ def create_badge(
     if shape_outline_mesh is not None:
         black_mesh = concat_meshes(black_mesh, shape_outline_mesh)
     if shape_mesh is not None:
-        shape_mesh = lift_mesh(shape_mesh, 0.06)
         orange_mesh = concat_meshes(orange_mesh, shape_mesh)
     else:
         orange_mesh = add_text_line(
@@ -825,7 +837,7 @@ def create_badge(
             shape_y,
             2.7,
             text_height * 0.9,
-            base_height,
+            detail_base_z,
             font_candidates=mono_fonts,
             kind="regular",
         )
@@ -833,6 +845,8 @@ def create_badge(
     # Event line.
     event = ascii_text_or_none(event_line) or "OSLO 2026"
     event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 4.4, 3.2)
+    event_outline_h = max(0.5, text_height * 0.60)
+    event_fill_h = max(0.5, text_height * 0.60)
     orange_mesh, black_mesh = add_monospace_text_with_outline(
         orange_mesh,
         black_mesh,
@@ -841,11 +855,13 @@ def create_badge(
         event_y,
         event_size,
         max(1.1, text_height * 1.2),
-        base_height,
+        detail_base_z,
         font_candidates=mono_fonts,
         kind="bold",
         outline_offset=0.18,
-        top_lift=0.05,
+        top_lift=event_outline_h + 0.01,
+        outline_height=event_outline_h,
+        fill_height=event_fill_h,
     )
 
     if orange_mesh is None:
@@ -854,7 +870,7 @@ def create_badge(
             center_x=panel_right - 0.8,
             center_y=-badge_height / 2 + 0.8,
             qr_size_mm=1.0,
-            base_z=base_height,
+            base_z=detail_base_z,
             layer_height=0.3,
             pad=0,
         )
