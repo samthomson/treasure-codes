@@ -250,9 +250,15 @@ def mask_to_mesh(
 
 def fit_width_to_box(mask, max_width_mm, max_height_mm):
     """Return a width that keeps the mask inside max width/height."""
-    h_px, w_px = mask.shape
+    if mask is None or not np.any(mask):
+        return max_width_mm
+
+    ys, xs = np.where(mask)
+    h_px = ys.max() - ys.min() + 1
+    w_px = xs.max() - xs.min() + 1
     if w_px <= 0 or h_px <= 0:
         return max_width_mm
+
     width = max_width_mm
     height = width * (h_px / w_px)
     if height > max_height_mm:
@@ -267,31 +273,40 @@ def emoji_to_codepoint_string(emoji):
 
 def fetch_twemoji_mask(emoji):
     """Fetch a Twemoji PNG for the sequence and return alpha mask."""
+    # Twemoji filenames often omit VS16 (FE0F). Try canonical variants.
+    variants = []
     code = emoji_to_codepoint_string(emoji)
+    variants.append(code)
+    stripped = "".join(ch for ch in emoji if ord(ch) != 0xFE0F)
+    if stripped and stripped != emoji:
+        variants.append(emoji_to_codepoint_string(stripped))
+
     cache_dir = os.path.join(OUTPUT_DIR, ".emoji_cache")
     os.makedirs(cache_dir, exist_ok=True)
-    png_path = os.path.join(cache_dir, f"{code}.png")
 
-    if not os.path.exists(png_path):
-        url = f"https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/{code}.png"
+    for variant in variants:
+        png_path = os.path.join(cache_dir, f"{variant}.png")
+        if not os.path.exists(png_path):
+            url = f"https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/{variant}.png"
+            try:
+                with urllib.request.urlopen(url, timeout=8) as resp:
+                    data = resp.read()
+                with open(png_path, "wb") as fh:
+                    fh.write(data)
+            except urllib.error.URLError:
+                continue
+            except Exception:
+                continue
+
         try:
-            with urllib.request.urlopen(url, timeout=8) as resp:
-                data = resp.read()
-            with open(png_path, "wb") as fh:
-                fh.write(data)
-        except urllib.error.URLError:
-            return None
+            rgba = np.array(Image.open(png_path).convert("RGBA"))
+            alpha = rgba[:, :, 3] > 10
+            if np.any(alpha):
+                return alpha
         except Exception:
-            return None
+            continue
 
-    try:
-        rgba = np.array(Image.open(png_path).convert("RGBA"))
-        alpha = rgba[:, :, 3] > 10
-        if not np.any(alpha):
-            return None
-        return alpha
-    except Exception:
-        return None
+    return None
 
 
 def build_qr_mesh(url, qr_size_mm, center_x, center_y, base_z, qr_height=0.9):
@@ -435,44 +450,63 @@ def build_shape_mesh(shape, center_x, center_y, base_z, height, max_width_mm=27.
     if not shape:
         return None
 
-    # Prefer Twemoji asset so ZWJ sequences (e.g. ❤️‍🔥) remain one glyph.
-    twemoji_mask = fetch_twemoji_mask(shape)
-    if twemoji_mask is not None:
-        target_w_mm = fit_width_to_box(twemoji_mask, max_width_mm=max_width_mm, max_height_mm=max_height_mm)
-        return mask_to_mesh(twemoji_mask, center_x, center_y, target_w_mm, base_z, height, max_width_px=260)
+    def native_mask():
+        try:
+            font = None
+            for size in (160, 96, 64, 48, 40, 32):
+                try:
+                    font = ImageFont.truetype("/System/Library/Fonts/Apple Color Emoji.ttc", size)
+                    break
+                except Exception:
+                    continue
+            if font is None:
+                return None
 
-    # Fallback: local Apple Color Emoji rasterization.
-    try:
-        font = None
-        for size in (160, 96, 64, 48, 40, 32):
-            try:
-                font = ImageFont.truetype("/System/Library/Fonts/Apple Color Emoji.ttc", size)
-                break
-            except Exception:
-                continue
-        if font is None:
-            return None
-
-        canvas = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(canvas)
-        bbox = draw.textbbox((0, 0), shape, font=font, embedded_color=True)
-        if bbox:
+            canvas = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(canvas)
+            bbox = draw.textbbox((0, 0), shape, font=font, embedded_color=True)
+            if not bbox:
+                return None
             w = bbox[2] - bbox[0]
             h = bbox[3] - bbox[1]
-            if w > 0 and h > 0:
-                x = (400 - w) / 2 - bbox[0]
-                y = (400 - h) / 2 - bbox[1]
-                draw.text((x, y), shape, font=font, embedded_color=True)
-                alpha = np.array(canvas)[:, :, 3] > 10
-                # Some ZWJ sequences render as separate parts on this stack;
-                # join close components so ❤️‍🔥 behaves as one icon.
-                if "\u200d" in shape and SCIPY_AVAILABLE:
-                    alpha = ndimage.binary_dilation(alpha, iterations=2)
-                    alpha = ndimage.binary_erosion(alpha, iterations=1)
-                target_w_mm = fit_width_to_box(alpha, max_width_mm=max_width_mm, max_height_mm=max_height_mm)
-                return mask_to_mesh(alpha, center_x, center_y, target_w_mm, base_z, height, max_width_px=260)
-    except Exception:
-        pass
+            if w <= 0 or h <= 0:
+                return None
+            x = (400 - w) / 2 - bbox[0]
+            y = (400 - h) / 2 - bbox[1]
+            draw.text((x, y), shape, font=font, embedded_color=True)
+            alpha = np.array(canvas)[:, :, 3] > 10
+            if not np.any(alpha):
+                return None
+            return alpha
+        except Exception:
+            return None
+
+    # Use native emoji style by default (matches system/ditto look).
+    # Only force Twemoji first for ZWJ sequences that native stack may split.
+    candidate_masks = []
+    if "\u200d" in shape:
+        twemoji = fetch_twemoji_mask(shape)
+        if twemoji is not None:
+            candidate_masks.append(twemoji)
+        native = native_mask()
+        if native is not None:
+            if SCIPY_AVAILABLE:
+                native = ndimage.binary_dilation(native, iterations=2)
+                native = ndimage.binary_erosion(native, iterations=1)
+            candidate_masks.append(native)
+    else:
+        native = native_mask()
+        if native is not None:
+            candidate_masks.append(native)
+        twemoji = fetch_twemoji_mask(shape)
+        if twemoji is not None:
+            candidate_masks.append(twemoji)
+
+    for mask in candidate_masks:
+        target_w_mm = fit_width_to_box(mask, max_width_mm=max_width_mm, max_height_mm=max_height_mm)
+        mesh = mask_to_mesh(mask, center_x, center_y, target_w_mm, base_z, height, max_width_px=260)
+        if mesh is not None:
+            return mesh
 
     return None
 
