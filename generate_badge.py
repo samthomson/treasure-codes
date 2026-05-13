@@ -183,7 +183,16 @@ def load_svg_mask(path, canvas_px=900, pad_px=50):
     return keep
 
 
-def mask_to_mesh(mask, center_x, center_y, target_width_mm, base_z, height, max_width_px=480):
+def mask_to_mesh(
+    mask,
+    center_x,
+    center_y,
+    target_width_mm,
+    base_z,
+    height,
+    max_width_px=480,
+    min_pixel_mm=0.30,
+):
     if mask is None or not np.any(mask):
         return None
 
@@ -197,6 +206,20 @@ def mask_to_mesh(mask, center_x, center_y, target_width_mm, base_z, height, max_
         scale = max_width_px / w_px
         resized = Image.fromarray((mask * 255).astype(np.uint8)).resize(
             (max(1, int(w_px * scale)), max(1, int(h_px * scale))),
+            Image.Resampling.NEAREST,
+        )
+        mask = np.array(resized) > 127
+        h_px, w_px = mask.shape
+
+    # Avoid microscopic voxelized boxes that explode triangle count.
+    # We cap effective raster resolution by physical pixel size.
+    pixel_mm = target_width_mm / max(1, w_px)
+    if pixel_mm < min_pixel_mm:
+        scale = pixel_mm / min_pixel_mm
+        new_w = max(1, int(w_px * scale))
+        new_h = max(1, int(h_px * scale))
+        resized = Image.fromarray((mask * 255).astype(np.uint8)).resize(
+            (new_w, new_h),
             Image.Resampling.NEAREST,
         )
         mask = np.array(resized) > 127
@@ -286,6 +309,18 @@ def build_qr_mesh(url, qr_size_mm, center_x, center_y, base_z, qr_height=0.9):
                 triangles.extend(create_box_triangles(x, y, base_z, square_size, square_size, qr_height))
 
     triangles = np.array(triangles)
+    verts = triangles.reshape(-1, 3)
+    faces = np.arange(len(verts)).reshape(-1, 3)
+    mesh = trimesh.Trimesh(vertices=verts, faces=faces)
+    mesh.merge_vertices()
+    return mesh
+
+
+def build_qr_background_mesh(center_x, center_y, qr_size_mm, base_z, layer_height=0.6, pad=1.2):
+    """Create a white underlay patch behind the QR area."""
+    width = qr_size_mm + pad
+    depth = qr_size_mm + pad
+    triangles = np.array(create_box_triangles(center_x, center_y, base_z, width, depth, layer_height))
     verts = triangles.reshape(-1, 3)
     faces = np.arange(len(verts)).reshape(-1, 3)
     mesh = trimesh.Trimesh(vertices=verts, faces=faces)
@@ -464,7 +499,8 @@ def create_badge(
     badge_width=112,
     badge_height=66,
     base_height=1.8,
-    qr_height=0.9,
+    qr_height=0.6,
+    qr_background_height=0.6,
     text_height=1.0,
 ):
     if badge_height < qr_size_mm + 2.5:
@@ -503,12 +539,19 @@ def create_badge(
         qr_size_mm=qr_size_mm,
         center_x=qr_center_x,
         center_y=qr_center_y,
-        base_z=base_height,
+        base_z=base_height + qr_background_height,
         qr_height=qr_height,
     )
+    qr_bg_mesh = build_qr_background_mesh(
+        center_x=qr_center_x,
+        center_y=qr_center_y,
+        qr_size_mm=qr_size_mm,
+        base_z=base_height,
+        layer_height=qr_background_height,
+    )
 
-    white_mesh = qr_mesh
-    accent_mesh = None
+    purple_mesh = qr_mesh
+    blue_mesh = None
 
     line_x = panel_left + 0.9
     top_line_y = qr_top - 5.3
@@ -528,14 +571,14 @@ def create_badge(
         height=text_height,
     )
     if logo_mesh is not None:
-        white_mesh = concat_meshes(white_mesh, logo_mesh)
+        blue_mesh = concat_meshes(blue_mesh, logo_mesh)
 
     company_text = ascii_text_or_none(company) or "SOAPBOX"
     company_left = line_x + icon_w + 0.25
     company_center = (company_left + panel_right) / 2
     company_size = estimate_mono_size_for_width(company_text, panel_right - company_left, 8.2, 3.8)
-    white_mesh = add_text_line(
-        white_mesh,
+    blue_mesh = add_text_line(
+        blue_mesh,
         company_text,
         company_center,
         top_line_y,
@@ -557,8 +600,8 @@ def create_badge(
     name_center = name_left + name_w / 2
     bar_left = name_left + name_w + 0.7
 
-    white_mesh = add_text_line(
-        white_mesh,
+    purple_mesh = add_text_line(
+        purple_mesh,
         name_text,
         name_center,
         name_y,
@@ -569,8 +612,8 @@ def create_badge(
         kind="regular",
     )
     # Render prompt/cursor in monospace so it reads like terminal input.
-    accent_mesh = add_text_line(
-        accent_mesh,
+    blue_mesh = add_text_line(
+        blue_mesh,
         ">",
         line_x + marker_w / 2,
         name_y,
@@ -580,8 +623,8 @@ def create_badge(
         font_candidates=mono_fonts,
         kind="regular",
     )
-    accent_mesh = add_text_line(
-        accent_mesh,
+    blue_mesh = add_text_line(
+        blue_mesh,
         "|",
         bar_left + marker_w / 2,
         name_y,
@@ -595,10 +638,10 @@ def create_badge(
     # Shape line: actual icon mesh for mountain emoji, then generic emoji raster.
     shape_mesh = build_shape_mesh(shape, (line_x + panel_right) / 2, shape_y + 1.0, base_height, text_height)
     if shape_mesh is not None:
-        white_mesh = concat_meshes(white_mesh, shape_mesh)
+        purple_mesh = concat_meshes(purple_mesh, shape_mesh)
     else:
-        white_mesh = add_text_line(
-            white_mesh,
+        purple_mesh = add_text_line(
+            purple_mesh,
             "shape unavailable",
             (line_x + panel_right) / 2,
             shape_y,
@@ -612,8 +655,8 @@ def create_badge(
     # Event line.
     event = ascii_text_or_none(event_line) or "OSLO 2026"
     event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 3.9, 2.5)
-    white_mesh = add_text_line(
-        white_mesh,
+    purple_mesh = add_text_line(
+        purple_mesh,
         event,
         (line_x + panel_right) / 2,
         event_y,
@@ -624,18 +667,31 @@ def create_badge(
         kind="regular",
     )
 
+    if blue_mesh is None:
+        # Safety fallback so object id remains valid even if text/logo fail.
+        blue_mesh = build_qr_background_mesh(
+            center_x=panel_right - 0.8,
+            center_y=-badge_height / 2 + 0.8,
+            qr_size_mm=1.0,
+            base_z=base_height,
+            layer_height=0.3,
+            pad=0,
+        )
+
     base_verts, base_tris = mesh_to_verts_tris_xml(base_mesh, 0)
-    white_verts, white_tris = mesh_to_verts_tris_xml(white_mesh, 1)
-    accent_verts, accent_tris = mesh_to_verts_tris_xml(accent_mesh, 2)
+    qr_bg_verts, qr_bg_tris = mesh_to_verts_tris_xml(qr_bg_mesh, 1)
+    purple_verts, purple_tris = mesh_to_verts_tris_xml(purple_mesh, 2)
+    blue_verts, blue_tris = mesh_to_verts_tris_xml(blue_mesh, 3)
 
     model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
   <metadata name="Application">TreasureQR Badge Generator</metadata>
   <resources>
     <m:basematerials id="1">
-      <m:base name="BaseGreen" displaycolor="#00AA00" />
-      <m:base name="DetailWhite" displaycolor="#FFFFFF" />
-      <m:base name="AccentBlue" displaycolor="#2B7FFF" />
+      <m:base name="BaseTranslucentPurple" displaycolor="#7A3DB8" />
+      <m:base name="QRWhiteUnderlay" displaycolor="#FFFFFF" />
+      <m:base name="DetailGlitterPurple" displaycolor="#6A38A4" />
+      <m:base name="BrandBlue" displaycolor="#0482D8" />
     </m:basematerials>
     <object id="1" name="badge_base" type="model">
       <mesh>
@@ -645,32 +701,41 @@ def create_badge(
 {base_tris}        </triangles>
       </mesh>
     </object>
-    <object id="2" name="badge_details" type="model">
+    <object id="2" name="qr_underlay" type="model">
       <mesh>
         <vertices>
-{white_verts}        </vertices>
+{qr_bg_verts}        </vertices>
         <triangles>
-{white_tris}        </triangles>
+{qr_bg_tris}        </triangles>
       </mesh>
     </object>
-    <object id="3" name="badge_accent" type="model">
+    <object id="3" name="badge_details_purple" type="model">
       <mesh>
         <vertices>
-{accent_verts}        </vertices>
+{purple_verts}        </vertices>
         <triangles>
-{accent_tris}        </triangles>
+{purple_tris}        </triangles>
       </mesh>
     </object>
-    <object id="4" name="badge" type="model">
+    <object id="4" name="badge_details_blue" type="model">
+      <mesh>
+        <vertices>
+{blue_verts}        </vertices>
+        <triangles>
+{blue_tris}        </triangles>
+      </mesh>
+    </object>
+    <object id="5" name="badge" type="model">
       <components>
         <component objectid="1" />
         <component objectid="2" />
         <component objectid="3" />
+        <component objectid="4" />
       </components>
     </object>
   </resources>
   <build>
-    <item objectid="4" />
+    <item objectid="5" />
   </build>
 </model>'''
 
@@ -694,13 +759,17 @@ def create_badge(
   </object>
   <object id="2">
     <metadata key="extruder" value="2"/>
-    <metadata key="name" value="badge_details"/>
+    <metadata key="name" value="qr_underlay"/>
   </object>
   <object id="3">
     <metadata key="extruder" value="3"/>
-    <metadata key="name" value="badge_accent"/>
+    <metadata key="name" value="badge_details_purple"/>
   </object>
   <object id="4">
+    <metadata key="extruder" value="4"/>
+    <metadata key="name" value="badge_details_blue"/>
+  </object>
+  <object id="5">
     <metadata key="name" value="badge"/>
     <part id="1">
       <metadata key="extruder" value="1"/>
@@ -710,6 +779,9 @@ def create_badge(
     </part>
     <part id="3">
       <metadata key="extruder" value="3"/>
+    </part>
+    <part id="4">
+      <metadata key="extruder" value="4"/>
     </part>
   </object>
 </config>'''
@@ -727,6 +799,7 @@ def create_badge(
     print(f"✓ Created badge 3MF: {output_file}")
     print(f"  Badge size: {badge_width}mm x {badge_height}mm, QR: {qr_size_mm}mm")
     print(f"  QR margins top/bottom: {qr_top_gap:.1f}mm / {(qr_bottom + badge_height / 2):.1f}mm")
+    print(f"  QR underlay/module heights: {qr_background_height:.2f}mm / {qr_height:.2f}mm")
 
 
 def pick_member(members, member_query):
@@ -756,6 +829,7 @@ def create_badges_from_members(
     badge_height,
     base_height,
     qr_height,
+    qr_background_height,
     text_height,
 ):
     with open(members_file, "r", encoding="utf-8") as fh:
@@ -795,6 +869,7 @@ def create_badges_from_members(
             badge_height=badge_height,
             base_height=base_height,
             qr_height=qr_height,
+            qr_background_height=qr_background_height,
             text_height=text_height,
         )
 
@@ -813,7 +888,8 @@ if __name__ == "__main__":
     parser.add_argument("--badge-width", type=float, default=112, help="Badge width in mm")
     parser.add_argument("--badge-height", type=float, default=66, help="Badge height in mm")
     parser.add_argument("--base-height", type=float, default=1.8, help="Base thickness in mm")
-    parser.add_argument("--qr-height", type=float, default=0.9, help="QR raise height in mm")
+    parser.add_argument("--qr-height", type=float, default=0.6, help="QR module raise height in mm")
+    parser.add_argument("--qr-background-height", type=float, default=0.6, help="White QR underlay thickness in mm")
     parser.add_argument("--text-height", type=float, default=1.0, help="Raised text height in mm")
     parser.add_argument("--members-file", default=None, help="Generate from team members JSON")
     parser.add_argument("--member", default=None, help="Single member name from members file")
@@ -837,6 +913,7 @@ if __name__ == "__main__":
             badge_height=args.badge_height,
             base_height=args.base_height,
             qr_height=args.qr_height,
+            qr_background_height=args.qr_background_height,
             text_height=args.text_height,
         )
     else:
@@ -859,5 +936,6 @@ if __name__ == "__main__":
             badge_height=args.badge_height,
             base_height=args.base_height,
             qr_height=args.qr_height,
+            qr_background_height=args.qr_background_height,
             text_height=args.text_height,
         )
