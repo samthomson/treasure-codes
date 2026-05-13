@@ -702,8 +702,8 @@ def create_badge(
         layer_height=qr_background_height,
     )
 
-    purple_mesh = qr_mesh
-    blue_mesh = None
+    black_mesh = qr_mesh
+    orange_mesh = None
 
     line_x = panel_left + 0.9
     top_line_y = qr_top - 5.3
@@ -723,14 +723,14 @@ def create_badge(
         height=text_height,
     )
     if logo_mesh is not None:
-        blue_mesh = concat_meshes(blue_mesh, logo_mesh)
+        orange_mesh = concat_meshes(orange_mesh, logo_mesh)
 
     company_text = ascii_text_or_none(company) or "SOAPBOX"
     company_left = line_x + icon_w + 0.25
     company_center = (company_left + panel_right) / 2
     company_size = estimate_mono_size_for_width(company_text, panel_right - company_left, 8.2, 3.8)
-    blue_mesh = add_text_line(
-        blue_mesh,
+    orange_mesh = add_text_line(
+        orange_mesh,
         company_text,
         company_center,
         top_line_y,
@@ -752,9 +752,9 @@ def create_badge(
     name_center = name_left + name_w / 2
     bar_left = name_left + name_w + 0.7
 
-    purple_mesh, blue_mesh = add_monospace_text_with_outline(
-        purple_mesh,
-        blue_mesh,
+    orange_mesh, black_mesh = add_monospace_text_with_outline(
+        orange_mesh,
+        black_mesh,
         name_text,
         name_center,
         name_y,
@@ -767,8 +767,8 @@ def create_badge(
         top_lift=0.06,
     )
     # Render prompt/cursor in monospace so it reads like terminal input.
-    blue_mesh = add_text_line(
-        blue_mesh,
+    black_mesh = add_text_line(
+        black_mesh,
         ">",
         line_x + marker_w / 2,
         name_y,
@@ -778,8 +778,8 @@ def create_badge(
         font_candidates=mono_fonts,
         kind="regular",
     )
-    blue_mesh = add_text_line(
-        blue_mesh,
+    black_mesh = add_text_line(
+        black_mesh,
         "|",
         bar_left + marker_w / 2,
         name_y,
@@ -813,13 +813,13 @@ def create_badge(
         outline_iterations=2,
     )
     if shape_outline_mesh is not None:
-        blue_mesh = concat_meshes(blue_mesh, shape_outline_mesh)
+        black_mesh = concat_meshes(black_mesh, shape_outline_mesh)
     if shape_mesh is not None:
         shape_mesh = lift_mesh(shape_mesh, 0.06)
-        purple_mesh = concat_meshes(purple_mesh, shape_mesh)
+        orange_mesh = concat_meshes(orange_mesh, shape_mesh)
     else:
-        purple_mesh = add_text_line(
-            purple_mesh,
+        orange_mesh = add_text_line(
+            orange_mesh,
             "shape unavailable",
             (line_x + panel_right) / 2,
             shape_y,
@@ -833,9 +833,9 @@ def create_badge(
     # Event line.
     event = ascii_text_or_none(event_line) or "OSLO 2026"
     event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 4.4, 3.2)
-    purple_mesh, blue_mesh = add_monospace_text_with_outline(
-        purple_mesh,
-        blue_mesh,
+    orange_mesh, black_mesh = add_monospace_text_with_outline(
+        orange_mesh,
+        black_mesh,
         event,
         (line_x + panel_right) / 2,
         event_y,
@@ -848,9 +848,9 @@ def create_badge(
         top_lift=0.05,
     )
 
-    if blue_mesh is None:
+    if orange_mesh is None:
         # Safety fallback so object id remains valid even if text/logo fail.
-        blue_mesh = build_qr_background_mesh(
+        orange_mesh = build_qr_background_mesh(
             center_x=panel_right - 0.8,
             center_y=-badge_height / 2 + 0.8,
             qr_size_mm=1.0,
@@ -861,8 +861,8 @@ def create_badge(
 
     base_verts, base_tris = mesh_to_verts_tris_xml(base_mesh, 0)
     qr_bg_verts, qr_bg_tris = mesh_to_verts_tris_xml(qr_bg_mesh, 1)
-    purple_verts, purple_tris = mesh_to_verts_tris_xml(purple_mesh, 2)
-    blue_verts, blue_tris = mesh_to_verts_tris_xml(blue_mesh, 3)
+    black_verts, black_tris = mesh_to_verts_tris_xml(black_mesh, 2)
+    orange_verts, orange_tris = mesh_to_verts_tris_xml(orange_mesh, 3)
 
     model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
@@ -871,8 +871,8 @@ def create_badge(
     <m:basematerials id="1">
       <m:base name="BaseTranslucentPurple" displaycolor="#7A3DB8" />
       <m:base name="QRWhiteUnderlay" displaycolor="#FFFFFF" />
-      <m:base name="DetailGlitterPurple" displaycolor="#6A38A4" />
-      <m:base name="BrandBlue" displaycolor="#0482D8" />
+      <m:base name="DetailBlack" displaycolor="#111111" />
+      <m:base name="AccentOrange" displaycolor="#FF5A2A" />
     </m:basematerials>
     <object id="1" name="badge_base" type="model">
       <mesh>
@@ -890,20 +890,20 @@ def create_badge(
 {qr_bg_tris}        </triangles>
       </mesh>
     </object>
-    <object id="3" name="badge_details_purple" type="model">
+    <object id="3" name="badge_details_black" type="model">
       <mesh>
         <vertices>
-{purple_verts}        </vertices>
+{black_verts}        </vertices>
         <triangles>
-{purple_tris}        </triangles>
+{black_tris}        </triangles>
       </mesh>
     </object>
-    <object id="4" name="badge_details_blue" type="model">
+    <object id="4" name="badge_details_orange" type="model">
       <mesh>
         <vertices>
-{blue_verts}        </vertices>
+{orange_verts}        </vertices>
         <triangles>
-{blue_tris}        </triangles>
+{orange_tris}        </triangles>
       </mesh>
     </object>
     <object id="5" name="badge" type="model">
@@ -944,11 +944,11 @@ def create_badge(
   </object>
   <object id="3">
     <metadata key="extruder" value="3"/>
-    <metadata key="name" value="badge_details_purple"/>
+    <metadata key="name" value="badge_details_black"/>
   </object>
   <object id="4">
     <metadata key="extruder" value="4"/>
-    <metadata key="name" value="badge_details_blue"/>
+    <metadata key="name" value="badge_details_orange"/>
   </object>
   <object id="5">
     <metadata key="name" value="badge"/>
