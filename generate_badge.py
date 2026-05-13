@@ -430,7 +430,7 @@ def build_logo_icon_mesh(logo_path, center_x, center_y, target_width_mm, base_z,
     return mask_to_mesh(mask, center_x, center_y, target_width_mm, base_z, height, max_width_px=700)
 
 
-def build_shape_mesh(shape, center_x, center_y, base_z, height):
+def build_shape_mesh(shape, center_x, center_y, base_z, height, max_width_mm=27.0, max_height_mm=16.0):
     shape = (shape or "").strip()
     if not shape:
         return None
@@ -438,11 +438,7 @@ def build_shape_mesh(shape, center_x, center_y, base_z, height):
     # Prefer Twemoji asset so ZWJ sequences (e.g. ❤️‍🔥) remain one glyph.
     twemoji_mask = fetch_twemoji_mask(shape)
     if twemoji_mask is not None:
-        h_px, w_px = twemoji_mask.shape
-        target_h_mm = 10.5
-        target_w_mm = target_h_mm * (w_px / max(1, h_px))
-        if target_w_mm > 18.0:
-            target_w_mm = 18.0
+        target_w_mm = fit_width_to_box(twemoji_mask, max_width_mm=max_width_mm, max_height_mm=max_height_mm)
         return mask_to_mesh(twemoji_mask, center_x, center_y, target_w_mm, base_z, height, max_width_px=260)
 
     # Fallback: local Apple Color Emoji rasterization.
@@ -473,11 +469,7 @@ def build_shape_mesh(shape, center_x, center_y, base_z, height):
                 if "\u200d" in shape and SCIPY_AVAILABLE:
                     alpha = ndimage.binary_dilation(alpha, iterations=2)
                     alpha = ndimage.binary_erosion(alpha, iterations=1)
-                h_px, w_px = alpha.shape
-                target_h_mm = 10.5
-                target_w_mm = target_h_mm * (w_px / max(1, h_px))
-                if target_w_mm > 18.0:
-                    target_w_mm = 18.0
+                target_w_mm = fit_width_to_box(alpha, max_width_mm=max_width_mm, max_height_mm=max_height_mm)
                 return mask_to_mesh(alpha, center_x, center_y, target_w_mm, base_z, height, max_width_px=260)
     except Exception:
         pass
@@ -556,7 +548,7 @@ def create_badge(
     line_x = panel_left + 0.9
     top_line_y = qr_top - 5.3
     name_y = qr_top - 17.0
-    shape_y = qr_top - 32.0
+    shape_y = qr_top - 33.0
     event_y = max(qr_bottom + 3.8, -badge_height / 2 + 3.2)
 
     # Logo icon + company text (inline).
@@ -635,8 +627,18 @@ def create_badge(
         kind="regular",
     )
 
-    # Shape line: actual icon mesh for mountain emoji, then generic emoji raster.
-    shape_mesh = build_shape_mesh(shape, (line_x + panel_right) / 2, shape_y + 1.0, base_height, text_height)
+    # Shape line: normalize every emoji into the same large bbox.
+    shape_box_width = 27.0
+    shape_box_height = 16.0
+    shape_mesh = build_shape_mesh(
+        shape,
+        (line_x + panel_right) / 2,
+        shape_y + 1.0,
+        base_height,
+        text_height,
+        max_width_mm=shape_box_width,
+        max_height_mm=shape_box_height,
+    )
     if shape_mesh is not None:
         purple_mesh = concat_meshes(purple_mesh, shape_mesh)
     else:
@@ -654,17 +656,17 @@ def create_badge(
 
     # Event line.
     event = ascii_text_or_none(event_line) or "OSLO 2026"
-    event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 3.9, 2.5)
+    event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 4.4, 3.2)
     purple_mesh = add_text_line(
         purple_mesh,
         event,
         (line_x + panel_right) / 2,
         event_y,
         event_size,
-        text_height * 0.9,
+        max(1.1, text_height * 1.2),
         base_height,
         font_candidates=mono_fonts,
-        kind="regular",
+        kind="bold",
     )
 
     if blue_mesh is None:
