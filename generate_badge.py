@@ -464,13 +464,14 @@ def add_monospace_text_with_outline(
     top_lift=0.06,
     outline_height=None,
     fill_height=None,
+    pitch_factor=0.62,
 ):
     """Draw outlined text one glyph at a time to keep alignment tight."""
     text = text or ""
     if not text:
         return fill_mesh, outline_mesh
 
-    pitch = size * 0.62
+    pitch = size * pitch_factor
     start_x = center_x - ((len(text) - 1) * pitch) / 2
     outline_offsets = [
         (-outline_offset, 0.0),
@@ -754,8 +755,14 @@ def create_badge(
     marker_w = 3.0
     gap = 0.8
     avail_for_name = panel_width - marker_w - gap - marker_w - 2.0
-    name_size = estimate_mono_size_for_width(name_text, avail_for_name, 6.1, 3.0)
-    name_w = len(name_text) * name_size * 0.62
+    # Keep glyphs printable for long names; tighten tracking before shrinking too far.
+    name_size = estimate_mono_size_for_width(name_text, avail_for_name, 6.1, 3.6)
+    pitch_factor = 0.62
+    if name_text:
+        needed = len(name_text) * (name_size * pitch_factor)
+        if needed > avail_for_name:
+            pitch_factor = max(0.48, avail_for_name / (len(name_text) * name_size))
+    name_w = len(name_text) * name_size * pitch_factor
     text_center = (line_x + panel_right) / 2
     name_center = text_center
     name_left = name_center - name_w / 2
@@ -775,18 +782,22 @@ def create_badge(
         font_candidates=mono_fonts,
         kind="regular",
         outline_offset=0.20,
-        top_lift=name_outline_h + 0.01,
+        top_lift=max(0.0, name_outline_h - 0.02),
         outline_height=name_outline_h,
         fill_height=name_fill_h,
+        pitch_factor=pitch_factor,
     )
-    # Render prompt/cursor in monospace so it reads like terminal input.
+
+    # Render prompt/cursor as black-only accent.
+    marker_size = max(3.8, name_size)
+    marker_fill_h = max(0.5, text_height * 0.55)
     black_mesh = add_text_line(
         black_mesh,
         ">",
         name_left - gap - marker_w / 2,
         name_y,
-        name_size,
-        text_height,
+        marker_size,
+        marker_fill_h,
         detail_base_z,
         font_candidates=mono_fonts,
         kind="regular",
@@ -796,8 +807,8 @@ def create_badge(
         "|",
         bar_left + marker_w / 2,
         name_y,
-        name_size * 1.02,
-        text_height,
+        marker_size * 1.02,
+        marker_fill_h,
         detail_base_z,
         font_candidates=mono_fonts,
         kind="regular",
@@ -812,7 +823,7 @@ def create_badge(
         shape,
         (line_x + panel_right) / 2,
         shape_y + 1.0,
-        detail_base_z + shape_outline_h + 0.01,
+        detail_base_z + max(0.0, shape_outline_h - 0.02),
         shape_fill_h,
         max_width_mm=shape_box_width,
         max_height_mm=shape_box_height,
@@ -861,7 +872,7 @@ def create_badge(
         font_candidates=mono_fonts,
         kind="bold",
         outline_offset=0.18,
-        top_lift=event_outline_h + 0.01,
+        top_lift=max(0.0, event_outline_h - 0.02),
         outline_height=event_outline_h,
         fill_height=event_fill_h,
     )
