@@ -664,15 +664,17 @@ def create_badge(
     if badge_height < qr_size_mm + 2.5:
         raise ValueError("Badge height must be at least QR size + 2.5mm.")
 
-    left_margin = 1.8
-    hole_qr_inset = left_margin + 1.2
+    slot_width = 3.0
+    # Use one shared frame gap for edge/stack spacing around QR + lanyard slot.
+    frame_gap = (badge_height - slot_width - qr_size_mm) / 3.0
+    if frame_gap <= 0:
+        raise ValueError("Badge height too small for equal spacing with current QR and slot sizes.")
+    hole_qr_inset = frame_gap
     qr_gap = 2.2
     qr_center_x = -badge_width / 2 + hole_qr_inset + qr_size_mm / 2
-    slot_top_margin = 5.2
-    slot_width = 3.0
-    # Keep equal visual spacing: hole-to-QR top == QR bottom-to-badge edge.
-    qr_top_gap = (badge_height - slot_top_margin - slot_width / 2 - qr_size_mm) / 2
-    qr_top_gap = max(2.8, qr_top_gap)
+    slot_top_margin = frame_gap + slot_width / 2
+    # Keep equal spacing: edge->hole, hole->QR, and QR->edge all use frame_gap.
+    qr_top_gap = frame_gap
     slot_bottom_y = badge_height / 2 - slot_top_margin - slot_width / 2
     qr_top = slot_bottom_y - qr_top_gap
     qr_center_y = qr_top - qr_size_mm / 2
