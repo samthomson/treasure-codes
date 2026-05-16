@@ -860,8 +860,8 @@ def create_badge(
     event_size = estimate_mono_size_for_width(event, panel_width - 0.5, 4.4, 3.2)
     event_outline_h = max(0.5, text_height * 0.60)
     event_fill_h = max(0.5, text_height * 0.60)
-    orange_mesh, black_mesh = add_monospace_text_with_outline(
-        orange_mesh,
+    _, black_mesh = add_monospace_text_with_outline(
+        None,
         black_mesh,
         event,
         (line_x + panel_right) / 2,
